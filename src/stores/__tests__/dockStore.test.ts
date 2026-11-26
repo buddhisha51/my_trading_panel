@@ -69,4 +69,38 @@ describe('dockStore', () => {
     expect(useDockStore.getState().phase).toBe('collapsed');
     expect(useDockStore.getState().preFullscreenSnapshot).toBeNull();
   });
+
+  it('automatically moves to primary display when active monitor disconnects', async () => {
+    vi.spyOn(tauriBridge, 'getMonitors').mockResolvedValue([
+      {
+        id: '\\\\.\\DISPLAY1',
+        friendlyName: 'Primary (Display 1) — 1920×1032',
+        x: 0,
+        y: 0,
+        width: 1920,
+        height: 1032,
+        scaleFactor: 1,
+        isPrimary: true,
+      },
+    ]);
+    vi.spyOn(tauriBridge, 'applyDockBounds').mockResolvedValue({
+      monitorId: '\\\\.\\DISPLAY1',
+      edge: 'left',
+      geometry: {
+        collapsed: { x: 0, y: 0, width: 10, height: 1032 },
+        expanded: { x: 0, y: 0, width: 380, height: 1032 },
+        clampedExpandedSize: 380,
+        minExpandedSize: 260,
+        maxExpandedSize: 1152,
+      },
+      fellBackToPrimary: true,
+    });
+
+    await useSettingsStore.getState().updateSettings({ monitorId: '\\\\.\\DISPLAY2' });
+    await useDockStore.getState().reapplyBounds();
+
+    expect(useDockStore.getState().fellBackToPrimary).toBe(true);
+    expect(useDockStore.getState().activeMonitorId).toBe('\\\\.\\DISPLAY1');
+    expect(useSettingsStore.getState().settings.monitorId).toBe('\\\\.\\DISPLAY1');
+  });
 });

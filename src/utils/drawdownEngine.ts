@@ -1,6 +1,35 @@
 import { DateTime } from 'luxon';
-import type { AccountProfile, TradeRecord } from '../types/journal';
+import type { AccountProfile, TradeOutcome, TradeRecord } from '../types/journal';
 import { NY_ZONE } from './killzoneEngine';
+
+/**
+ * Enforces consistent PnL sign semantics:
+ * - `loss` trades always reduce equity (`<= 0`, even if entered as a positive amount like `150`).
+ * - `win` trades always add to equity (`>= 0`).
+ * - `breakeven` / `partial` preserve explicit signs (so small fees `-5` or positive partials work).
+ */
+export function normalizeTradePnl(
+  outcome: TradeOutcome | null | undefined,
+  pnl: number | null | undefined,
+): number | null {
+  if (pnl === null || pnl === undefined || !Number.isFinite(pnl)) return null;
+  if (outcome === 'loss') return pnl === 0 ? 0 : -Math.abs(pnl);
+  if (outcome === 'win') return Math.abs(pnl);
+  return pnl;
+}
+
+/**
+ * Enforces consistent R-multiple sign semantics matching trade outcome.
+ */
+export function normalizeTradeR(
+  outcome: TradeOutcome | null | undefined,
+  rMultiple: number | null | undefined,
+): number | null {
+  if (rMultiple === null || rMultiple === undefined || !Number.isFinite(rMultiple)) return null;
+  if (outcome === 'loss') return rMultiple === 0 ? 0 : -Math.abs(rMultiple);
+  if (outcome === 'win') return Math.abs(rMultiple);
+  return rMultiple;
+}
 
 export interface EquityPoint {
   index: number;
@@ -85,7 +114,8 @@ export function computeAccountMetrics(
   ];
 
   sorted.forEach((tr, idx) => {
-    const pnl = tr.pnlDollars ?? 0;
+    const pnl = normalizeTradePnl(tr.outcome, tr.pnlDollars) ?? 0;
+    const normalizedR = normalizeTradeR(tr.outcome, tr.rMultiple);
     running += pnl;
     if (running > peak) {
       peak = running;
@@ -99,8 +129,8 @@ export function computeAccountMetrics(
     else if (tr.outcome === 'breakeven') breakevenCount += 1;
     else if (tr.outcome === 'partial') partialCount += 1;
 
-    if (tr.rMultiple !== null && Number.isFinite(tr.rMultiple)) {
-      rSum += tr.rMultiple;
+    if (normalizedR !== null && Number.isFinite(normalizedR)) {
+      rSum += normalizedR;
       rCount += 1;
     }
 

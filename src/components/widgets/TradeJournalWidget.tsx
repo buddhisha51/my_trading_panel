@@ -9,6 +9,7 @@ import {
   type TradeOutcome,
 } from '../../types/journal';
 import type { DrawdownMode } from '../../types/settings';
+import { normalizeTradePnl, normalizeTradeR } from '../../utils/drawdownEngine';
 import { evaluateSetupChecklist, gradeColor, type SetupGrade } from '../../utils/strategyGrade';
 
 export function TradeJournalWidget() {
@@ -99,8 +100,12 @@ export function TradeJournalWidget() {
 
   const handleLogTrade = async (e: React.FormEvent) => {
     e.preventDefault();
-    const pnl = Number(pnlText);
-    if (!Number.isFinite(pnl)) return;
+    const rawPnl = outcome === 'breakeven' && !pnlText.trim() ? 0 : Number(pnlText);
+    if (!Number.isFinite(rawPnl)) return;
+    const pnl = normalizeTradePnl(outcome, rawPnl) ?? 0;
+    const rawR = rText.trim() ? Number(rText) : null;
+    const normalizedR =
+      rawR !== null && Number.isFinite(rawR) ? normalizeTradeR(outcome, rawR) : null;
 
     let snapshotJson: string | null = null;
     let grade: string | null = null;
@@ -131,7 +136,7 @@ export function TradeJournalWidget() {
       lotSize: lotsText.trim() ? Number(lotsText) : null,
       outcome,
       pnlDollars: pnl,
-      rMultiple: rText.trim() ? Number(rText) : null,
+      rMultiple: normalizedR,
       strategyId: strategyId || null,
       notes: notes.trim() || null,
       screenshotPath: null,
@@ -455,10 +460,16 @@ export function TradeJournalWidget() {
             <input
               type="number"
               step="any"
-              required
+              required={outcome !== 'breakeven'}
               value={pnlText}
               onChange={(e) => setPnlText(e.target.value)}
-              placeholder="P/L ($) e.g. 150"
+              placeholder={
+                outcome === 'loss'
+                  ? 'Loss ($) e.g. 150'
+                  : outcome === 'breakeven'
+                    ? 'P/L ($) e.g. 0'
+                    : 'Profit ($) e.g. 150'
+              }
               className="rounded border border-slate-800 bg-slate-900 px-1.5 py-1 font-mono text-[10px] text-slate-100"
             />
             <input
@@ -466,7 +477,7 @@ export function TradeJournalWidget() {
               step="any"
               value={rText}
               onChange={(e) => setRText(e.target.value)}
-              placeholder="R e.g. 2.5"
+              placeholder={outcome === 'loss' ? 'R e.g. -1' : 'R e.g. 2.5'}
               className="rounded border border-slate-800 bg-slate-900 px-1.5 py-1 font-mono text-[10px] text-slate-100"
             />
             <input
@@ -560,7 +571,8 @@ export function TradeJournalWidget() {
             const stratName = tr.strategyId
               ? strategies.find((s) => s.id === tr.strategyId)?.name
               : null;
-            const pnl = tr.pnlDollars ?? 0;
+            const pnl = normalizeTradePnl(tr.outcome, tr.pnlDollars) ?? 0;
+            const rVal = normalizeTradeR(tr.outcome, tr.rMultiple);
             const grade = tr.setupGrade as SetupGrade | null;
             return (
               <div
@@ -598,10 +610,10 @@ export function TradeJournalWidget() {
                 </div>
 
                 <div className="flex shrink-0 items-center gap-1.5 font-mono text-[10px]">
-                  {tr.rMultiple !== null && (
+                  {rVal !== null && (
                     <span className="text-slate-400">
-                      {tr.rMultiple >= 0 ? '+' : ''}
-                      {tr.rMultiple.toFixed(1)}R
+                      {rVal >= 0 ? '+' : ''}
+                      {rVal.toFixed(1)}R
                     </span>
                   )}
                   <span className={pnl >= 0 ? 'font-semibold text-emerald-400' : 'font-semibold text-rose-400'}>

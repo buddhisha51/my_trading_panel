@@ -113,4 +113,39 @@ describe('drawdownEngine', () => {
     expect(m.dailyDrawdownPct).toBeCloseTo(3.5, 3);
     expect(m.dailyDdBreached).toBe(true);
   });
+
+  it('normalizes positive loss PnL and R inputs so losses always reduce equity', () => {
+    const profile: AccountProfile = {
+      id: 'default',
+      accountName: 'Funded',
+      startingBalance: 10000,
+      currentBalance: 10000,
+      highWaterMark: 10000,
+      currency: 'USD',
+      ddMode: 'static',
+      dailyDdLimit: 5,
+      maxDdLimit: 10,
+      updatedAt: '',
+    };
+
+    const now = DateTime.fromISO('2026-07-15T16:00:00Z', { zone: 'utc' });
+    const m = computeAccountMetrics(
+      profile,
+      [
+        makeTrade({
+          id: 't_loss_pos',
+          outcome: 'loss',
+          pnlDollars: 200,
+          rMultiple: 1.5,
+          exitTime: '2026-07-15T14:00:00Z',
+        }),
+      ],
+      now,
+    );
+    expect(m.currentBalance).toBe(9800);
+    expect(m.netPnl).toBe(-200);
+    expect(m.dailyPnl).toBe(-200);
+    expect(m.dailyDrawdownPct).toBeCloseTo(2, 4);
+    expect(m.avgRMultiple).toBe(-1.5);
+  });
 });

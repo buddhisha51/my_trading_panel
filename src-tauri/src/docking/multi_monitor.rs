@@ -26,10 +26,18 @@ pub fn enumerate_monitors(app: &AppHandle) -> Vec<MonitorInfo> {
                 .map(|p| p == &raw_name)
                 .unwrap_or(idx == 0);
 
+            let display_label = raw_name
+                .trim_start_matches("\\\\.\\")
+                .strip_prefix("DISPLAY")
+                .or_else(|| raw_name.strip_prefix("DISPLAY_"))
+                .filter(|rest| !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()))
+                .map(|num| format!("Display {num}"))
+                .unwrap_or_else(|| raw_name.trim_start_matches("\\\\.\\").to_string());
+
             let friendly_name = if is_primary {
-                format!("Primary ({}) — {}×{}", raw_name, work.size.width, work.size.height)
+                format!("Primary ({}) — {}×{}", display_label, work.size.width, work.size.height)
             } else {
-                format!("Display {} ({}) — {}×{}", idx + 1, raw_name, work.size.width, work.size.height)
+                format!("{} — {}×{}", display_label, work.size.width, work.size.height)
             };
 
             MonitorInfo {

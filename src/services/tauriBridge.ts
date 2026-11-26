@@ -50,6 +50,7 @@ import {
   type DbStatus,
   type WidgetLayoutItem,
 } from '../types/settings';
+import { normalizeTradePnl, normalizeTradeR } from '../utils/drawdownEngine';
 import { generateUlid } from '../utils/id';
 
 const PREVIEW_SETTINGS_KEY = 'ict_panel_preview_settings';
@@ -125,7 +126,7 @@ function recomputePreviewProfile(
   let bal = profile.startingBalance;
   let hwm = profile.startingBalance;
   for (const t of ordered) {
-    bal += t.pnlDollars ?? 0;
+    bal += normalizeTradePnl(t.outcome, t.pnlDollars) ?? 0;
     if (bal > hwm) hwm = bal;
   }
   const updated: AccountProfile = {
@@ -869,8 +870,8 @@ export const tauriBridge = {
         takeProfit: payload.takeProfit,
         lotSize: payload.lotSize,
         outcome: payload.outcome,
-        pnlDollars: payload.pnlDollars,
-        rMultiple: payload.rMultiple,
+        pnlDollars: normalizeTradePnl(payload.outcome, payload.pnlDollars),
+        rMultiple: normalizeTradeR(payload.outcome, payload.rMultiple),
         strategyId: payload.strategyId,
         notes: payload.notes,
         screenshotPath: payload.screenshotPath,

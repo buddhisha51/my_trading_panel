@@ -174,7 +174,19 @@ fn validate_direction(d: &str) -> Result<String, String> {
     }
 }
 
+fn normalize_outcome_signed(outcome: Option<&str>, val: Option<f64>) -> Option<f64> {
+    let v = val?;
+    match outcome.map(|s| s.to_lowercase()).as_deref() {
+        Some("loss") => Some(if v == 0.0 { 0.0 } else { -v.abs() }),
+        Some("win") => Some(v.abs()),
+        _ => Some(v),
+    }
+}
+
 fn row_to_trade(row: sqlx::sqlite::SqliteRow) -> Result<TradeRecord, String> {
+    let outcome: Option<String> = row.try_get("outcome").map_err(|e| e.to_string())?;
+    let raw_pnl: Option<f64> = row.try_get("pnl_dollars").map_err(|e| e.to_string())?;
+    let raw_r: Option<f64> = row.try_get("r_multiple").map_err(|e| e.to_string())?;
     Ok(TradeRecord {
         id: row.try_get("id").map_err(|e| e.to_string())?,
         pair: row.try_get("pair").map_err(|e| e.to_string())?,
@@ -183,9 +195,9 @@ fn row_to_trade(row: sqlx::sqlite::SqliteRow) -> Result<TradeRecord, String> {
         stop_loss: row.try_get("stop_loss").map_err(|e| e.to_string())?,
         take_profit: row.try_get("take_profit").map_err(|e| e.to_string())?,
         lot_size: row.try_get("lot_size").map_err(|e| e.to_string())?,
-        outcome: row.try_get("outcome").map_err(|e| e.to_string())?,
-        pnl_dollars: row.try_get("pnl_dollars").map_err(|e| e.to_string())?,
-        r_multiple: row.try_get("r_multiple").map_err(|e| e.to_string())?,
+        pnl_dollars: normalize_outcome_signed(outcome.as_deref(), raw_pnl),
+        r_multiple: normalize_outcome_signed(outcome.as_deref(), raw_r),
+        outcome,
         strategy_id: row.try_get("strategy_id").map_err(|e| e.to_string())?,
         notes: row.try_get("notes").map_err(|e| e.to_string())?,
         screenshot_path: row.try_get("screenshot_path").map_err(|e| e.to_string())?,
@@ -222,7 +234,7 @@ async fn recompute_account_balance(pool: &SqlitePool) -> Result<AccountProfileRe
     let profile = fetch_account_profile(pool).await?;
 
     let pnls = sqlx::query(
-        "SELECT COALESCE(pnl_dollars, 0.0) AS pnl FROM trades ORDER BY COALESCE(exit_time, entry_time, created_at) ASC, created_at ASC",
+        "SELECT outcome, COALESCE(pnl_dollars, 0.0) AS pnl FROM trades ORDER BY COALESCE(exit_time, entry_time, created_at) ASC, created_at ASC",
     )
     .fetch_all(pool)
     .await
@@ -231,7 +243,9 @@ async fn recompute_account_balance(pool: &SqlitePool) -> Result<AccountProfileRe
     let mut running = profile.starting_balance;
     let mut hwm = profile.starting_balance;
     for row in pnls {
-        let p: f64 = row.try_get("pnl").unwrap_or(0.0);
+        let outcome: Option<String> = row.try_get("outcome").ok().flatten();
+        let raw_p: f64 = row.try_get("pnl").unwrap_or(0.0);
+        let p = normalize_outcome_signed(outcome.as_deref(), Some(raw_p)).unwrap_or(0.0);
         running += p;
         if running > hwm {
             hwm = running;
@@ -361,6 +375,8 @@ pub async fn upsert_trade(
         .id
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| next_id("tr"));
+    let normalized_pnl = normalize_outcome_signed(input.outcome.as_deref(), input.pnl_dollars);
+    let normalized_r = normalize_outcome_signed(input.outcome.as_deref(), input.r_multiple);
 
     sqlx::query(
         r#"
@@ -405,8 +421,8 @@ pub async fn upsert_trade(
     .bind(input.take_profit)
     .bind(input.lot_size)
     .bind(input.outcome)
-    .bind(input.pnl_dollars)
-    .bind(input.r_multiple)
+    .bind(normalized_pnl)
+    .bind(normalized_r)
     .bind(input.strategy_id)
     .bind(input.notes)
     .bind(input.screenshot_path)
@@ -550,6 +566,9 @@ pub async fn close_ongoing_to_journal(
 
     let ongoing = row_to_ongoing(ongoing_row)?;
     let trade_id = next_id("tr");
+    let normalized_pnl = normalize_outcome_signed(Some(&input.outcome), Some(input.pnl_dollars))
+        .unwrap_or(input.pnl_dollars);
+    let normalized_r = normalize_outcome_signed(Some(&input.outcome), input.r_multiple);
 
     let mut tx = state.pool.begin().await.map_err(|e| e.to_string())?;
 
@@ -577,8 +596,8 @@ pub async fn close_ongoing_to_journal(
     .bind(ongoing.take_profit)
     .bind(ongoing.lot_size)
     .bind(&input.outcome)
-    .bind(input.pnl_dollars)
-    .bind(input.r_multiple)
+    .bind(normalized_pnl)
+    .bind(normalized_r)
     .bind(&ongoing.strategy_id)
     .bind(input.notes.or(ongoing.notes))
     .bind(&input.screenshot_path)

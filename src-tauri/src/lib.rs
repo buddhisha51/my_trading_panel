@@ -116,6 +116,27 @@ pub fn run() {
                 }
             }
 
+            // Watch monitor topology every 2s so unplugging or turning off an active display
+            // automatically moves the panel to the next active display without manual restart.
+            let watcher_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let snapshot = |handle: &tauri::AppHandle| -> Vec<(String, i32, i32, u32, u32)> {
+                    enumerate_monitors(handle)
+                        .into_iter()
+                        .map(|m| (m.id, m.x, m.y, m.width, m.height))
+                        .collect()
+                };
+                let mut prev = snapshot(&watcher_handle);
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    let curr = snapshot(&watcher_handle);
+                    if curr != prev {
+                        prev = curr;
+                        let _ = watcher_handle.emit("display-metrics-changed", ());
+                    }
+                }
+            });
+
             Ok(())
         })
         .on_window_event(|window, event| {

@@ -113,6 +113,27 @@ describe('Milestone 4 Widgets', () => {
       fireEvent.click(screen.getByText('Close'));
     });
     expect(screen.getByText(/Close XAUUSD/i)).toBeTruthy();
+
+    // Closing an ongoing trade as Loss with positive number 250 must reduce equity (-$250)
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'loss' }));
+    });
+    fireEvent.change(screen.getByPlaceholderText(/Loss \(\$\)/i), { target: { value: '250' } });
+    await useJournalStore.getState().updateProfile({
+      accountName: 'Eval',
+      startingBalance: 10000,
+      currency: 'USD',
+      ddMode: 'static',
+      dailyDdLimit: 5,
+      maxDdLimit: 10,
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Move to Trade Journal/i }));
+    });
+    await waitFor(() => {
+      expect(useJournalStore.getState().metrics.currentBalance).toBe(9750);
+      expect(useJournalStore.getState().metrics.netPnl).toBe(-250);
+    });
   });
 
   it('shows High Volatility banner and filters currencies in EconomicCalendarWidget', async () => {

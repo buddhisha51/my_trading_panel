@@ -15,6 +15,7 @@ import { DateTime } from 'luxon';
 import { memo, useEffect, useState } from 'react';
 import { useDockStore } from '../../stores/dockStore';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { formatMonitorLabel } from '../../utils/dockMath';
 import { formatZoneClock, NY_TIMEZONE } from '../../utils/timezone';
 
   export const TitleBar = memo(function TitleBar() {
@@ -80,7 +81,7 @@ import { formatZoneClock, NY_TIMEZONE } from '../../utils/timezone';
               ICT / SMC Panel
             </span>
             <span className="truncate text-[10px] text-slate-400">
-              {edge.toUpperCase()} • {activeMonitorId ?? 'Primary'}
+              {edge.toUpperCase()} • {formatMonitorLabel(activeMonitorId)}
             </span>
           </div>
         </div>

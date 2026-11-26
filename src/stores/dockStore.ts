@@ -106,11 +106,36 @@ export const useDockStore = create<DockState>()(
 
     reapplyBounds: async () => {
       const state = get();
-      if (state.phase === 'fullscreen') return;
-
       const monitors = await tauriBridge.getMonitors();
       const { edge, monitorId, collapsedThickness, expandedSize } =
         useSettingsStore.getState().settings;
+
+      if (state.phase === 'fullscreen') {
+        const stillConnected = monitors.some((m) => m.id === state.activeMonitorId);
+        if (!stillConnected && monitors.length > 0) {
+          const fallback = monitors.find((m) => m.isPrimary) ?? monitors[0];
+          await tauriBridge.setPanelFullscreen({
+            fullscreen: true,
+            edge,
+            monitorId: fallback.id,
+            collapsedThickness,
+            expandedSize,
+            restoreExpanded: true,
+          });
+          set((s) => {
+            s.monitors = monitors;
+            s.activeMonitorId = fallback.id;
+            s.fellBackToPrimary = true;
+          });
+          await useSettingsStore.getState().updateSettings({ monitorId: fallback.id });
+        } else {
+          set((s) => {
+            s.monitors = monitors;
+          });
+        }
+        return;
+      }
+
       const expanded =
         state.phase === 'expanded' ||
         state.phase === 'expanding' ||
@@ -132,6 +157,12 @@ export const useDockStore = create<DockState>()(
         s.geometry = applied.geometry;
         s.fellBackToPrimary = applied.fellBackToPrimary;
       });
+
+      if (applied.fellBackToPrimary && applied.monitorId !== monitorId) {
+        await useSettingsStore.getState().updateSettings({
+          monitorId: applied.monitorId,
+        });
+      }
     },
 
     expandPanel: async () => {

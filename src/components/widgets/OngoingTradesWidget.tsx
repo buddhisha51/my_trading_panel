@@ -9,6 +9,7 @@ import type {
   TradeDirection,
   TradeOutcome,
 } from '../../types/journal';
+import { normalizeTradePnl, normalizeTradeR } from '../../utils/drawdownEngine';
 import { evaluateSetupChecklist } from '../../utils/strategyGrade';
 
 const STATUS_BADGE: Record<OngoingStatus, { label: string; cls: string }> = {
@@ -84,8 +85,15 @@ export function OngoingTradesWidget() {
   const handleConfirmClose = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!closingTrade) return;
-    const pnl = Number(closePnl);
-    if (!Number.isFinite(pnl)) return;
+    const rawPnl =
+      closeOutcome === 'breakeven' && !closePnl.trim() ? 0 : Number(closePnl);
+    if (!Number.isFinite(rawPnl)) return;
+    const pnl = normalizeTradePnl(closeOutcome, rawPnl) ?? 0;
+    const rawR = closeR.trim() ? Number(closeR) : null;
+    const normalizedR =
+      rawR !== null && Number.isFinite(rawR)
+        ? normalizeTradeR(closeOutcome, rawR)
+        : null;
 
     let snapshotJson: string | null = null;
     let grade: string | null = null;
@@ -110,7 +118,7 @@ export function OngoingTradesWidget() {
       ongoingId: closingTrade.id,
       outcome: closeOutcome,
       pnlDollars: pnl,
-      rMultiple: closeR.trim() ? Number(closeR) : null,
+      rMultiple: normalizedR,
       notes: closeNotes.trim() || closingTrade.notes,
       screenshotPath: null,
       checklistSnapshot: snapshotJson,
@@ -283,10 +291,16 @@ export function OngoingTradesWidget() {
             <input
               type="number"
               step="any"
-              required
+              required={closeOutcome !== 'breakeven'}
               value={closePnl}
               onChange={(e) => setClosePnl(e.target.value)}
-              placeholder="P/L ($) e.g. 250"
+              placeholder={
+                closeOutcome === 'loss'
+                  ? 'Loss ($) e.g. 150'
+                  : closeOutcome === 'breakeven'
+                    ? 'P/L ($) e.g. 0'
+                    : 'Profit ($) e.g. 250'
+              }
               className="rounded border border-slate-800 bg-slate-900 px-1.5 py-1 font-mono text-[10px] text-slate-100"
             />
             <input
@@ -294,7 +308,7 @@ export function OngoingTradesWidget() {
               step="any"
               value={closeR}
               onChange={(e) => setCloseR(e.target.value)}
-              placeholder="R-Multiple e.g. 2.5"
+              placeholder={closeOutcome === 'loss' ? 'R e.g. -1' : 'R-Multiple e.g. 2.5'}
               className="rounded border border-slate-800 bg-slate-900 px-1.5 py-1 font-mono text-[10px] text-slate-100"
             />
             <select

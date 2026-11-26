@@ -63,3 +63,18 @@ export function getSlideTransform(edge: DockEdge, slideVisible: boolean): string
       return 'translate3d(0, 100%, 0)';
   }
 }
+
+/**
+ * Formats Windows monitor device IDs (e.g. `\\.\DISPLAY2`, `DISPLAY_2`) into
+ * clean, readable display labels (`Display 2`).
+ */
+export function formatMonitorLabel(monitorId: string | null | undefined): string {
+  if (!monitorId) return 'Primary';
+  const trimmed = monitorId.trim();
+  if (!trimmed || trimmed === 'BROWSER_PREVIEW') return 'Primary';
+  const winMatch = trimmed.match(/DISPLAY[_-]?(\d+)/i);
+  if (winMatch) {
+    return `Display ${winMatch[1]}`;
+  }
+  return trimmed.replace(/^\\\\\.\\/, '');
+}

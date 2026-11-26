@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { MonitorInfo } from '../../types/dock';
 import {
   clampExpandedSize,
+  formatMonitorLabel,
   getSlideTransform,
   isHorizontalEdge,
   percentToSize,
@@ -46,5 +47,13 @@ describe('dockMath', () => {
     expect(getSlideTransform('top', false)).toBe('translate3d(0, -100%, 0)');
     expect(getSlideTransform('bottom', false)).toBe('translate3d(0, 100%, 0)');
     expect(getSlideTransform('left', true)).toBe('translate3d(0, 0, 0)');
+  });
+
+  it('formats raw Windows monitor IDs into readable labels', () => {
+    expect(formatMonitorLabel('\\\\.\\DISPLAY2')).toBe('Display 2');
+    expect(formatMonitorLabel('\\\\.\\DISPLAY1')).toBe('Display 1');
+    expect(formatMonitorLabel('DISPLAY_3')).toBe('Display 3');
+    expect(formatMonitorLabel('BROWSER_PREVIEW')).toBe('Primary');
+    expect(formatMonitorLabel(null)).toBe('Primary');
   });
 });

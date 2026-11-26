@@ -1,0 +1,24 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "ICT / SMC Trading Panel default capabilities",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:default",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-set-position",
+    "core:window:allow-set-size",
+    "core:window:allow-set-fullscreen",
+    "core:window:allow-start-dragging",
+    "core:window:allow-center",
+    "core:window:allow-set-focus",
+    "core:window:allow-show",
+    "core:window:allow-available-monitors",
+    "core:window:allow-current-monitor",
+    "global-shortcut:default",
+    "notification:default"
+  ]
+}

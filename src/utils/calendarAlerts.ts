@@ -1,0 +1,125 @@
+import { DateTime } from 'luxon';
+import type {
+  EconomicEventItem,
+  FetchMetadataEntry,
+  VolatilityAlert,
+} from '../types/market';
+import { formatCountdown, formatHmTime, NY_ZONE } from './killzoneEngine';
+
+export function parseUtcIso(raw: string): DateTime {
+  const iso = DateTime.fromISO(raw, { zone: 'utc' });
+  if (iso.isValid) return iso;
+  const sql = DateTime.fromSQL(raw, { zone: 'utc' });
+  return sql;
+}
+
+/**
+ * Computes imminent ICT "High Volatility" warnings directly from cached SQLite `economic_events`.
+ */
+export function getUpcomingHighImpactAlerts(
+  events: EconomicEventItem[],
+  nowUtc: DateTime,
+  thresholdMinutes = 15,
+): VolatilityAlert[] {
+  return events
+    .filter((e) => e.impact === 'high')
+    .map((e) => {
+      const dt = parseUtcIso(e.eventDatetime);
+      const minutesUntil = dt.isValid ? dt.diff(nowUtc, 'minutes').minutes : -1;
+      return { event: e, minutesUntil };
+    })
+    .filter(({ minutesUntil }) => minutesUntil > 0 && minutesUntil <= thresholdMinutes)
+    .sort((a, b) => a.minutesUntil - b.minutesUntil)
+    .map(({ event, minutesUntil }) => ({
+      event,
+      minutesUntil,
+      severity: 'red_folder' as const,
+      message: `High Volatility: ${event.title} (${event.country}) in ${Math.max(1, Math.round(minutesUntil))}m`,
+    }));
+}
+
+export function getNextHighImpactEvent(
+  events: EconomicEventItem[],
+  nowUtc: DateTime,
+): { event: EconomicEventItem; msUntil: number } | null {
+  let best: { event: EconomicEventItem; msUntil: number } | null = null;
+  for (const ev of events) {
+    if (ev.impact !== 'high') continue;
+    const dt = parseUtcIso(ev.eventDatetime);
+    if (!dt.isValid) continue;
+    const diffMs = dt.toMillis() - nowUtc.toMillis();
+    if (diffMs > 0 && (!best || diffMs < best.msUntil)) {
+      best = { event: ev, msUntil: diffMs };
+    }
+  }
+  return best;
+}
+
+export function formatEventTimes(
+  eventDatetimeUtc: string,
+  userTimezone: string,
+  format: '12h' | '24h',
+): { localLabel: string; nyLabel: string; dayLabel: string } {
+  const dt = parseUtcIso(eventDatetimeUtc);
+  if (!dt.isValid) {
+    return { localLabel: '--:--', nyLabel: '--:--', dayLabel: '--' };
+  }
+  const ny = dt.setZone(NY_ZONE);
+  const local = dt.setZone(userTimezone);
+  return {
+    localLabel: formatHmTime(local.isValid ? local : ny, format),
+    nyLabel: formatHmTime(ny, format),
+    dayLabel: ny.toFormat('EEE MMM d'),
+  };
+}
+
+export interface FeedResilienceBanner {
+  status: 'fresh' | 'backoff' | 'stale' | 'empty';
+  label: string | null;
+}
+
+/**
+ * Evaluates cached `fetch_metadata` rows against `nowUtc` to surface rate-limit backoff
+ * countdowns or stale offline timestamps cleanly without breaking UI rendering.
+ */
+export function evaluateFeedResilience(
+  metadata: FetchMetadataEntry[],
+  providerFilter: string | null,
+  hasCachedRows: boolean,
+  nowUtc: DateTime = DateTime.utc(),
+): FeedResilienceBanner {
+  const relevant = providerFilter
+    ? metadata.filter((m) => m.provider === providerFilter)
+    : metadata;
+
+  if (relevant.length === 0) {
+    return hasCachedRows
+      ? { status: 'fresh', label: null }
+      : { status: 'empty', label: 'No cached feed yet — syncing or offline' };
+  }
+
+  for (const m of relevant) {
+    if (m.backoffUntil) {
+      const until = parseUtcIso(m.backoffUntil);
+      if (until.isValid && until.toMillis() > nowUtc.toMillis()) {
+        const ms = until.toMillis() - nowUtc.toMillis();
+        return {
+          status: 'backoff',
+          label: `Rate-limited (${m.provider}) — retry in ${formatCountdown(ms)}`,
+        };
+      }
+    }
+  }
+
+  const failing = relevant.find((m) => m.consecutiveFailures > 0);
+  if (failing) {
+    const last = parseUtcIso(failing.lastFetchedAt);
+    const ago = last.isValid ? last.toRelative({ base: nowUtc }) : 'earlier';
+    return {
+      status: 'stale',
+      label: `Offline cache — updated ${ago ?? 'earlier'}`,
+    };
+  }
+
+  return { status: 'fresh', label: null };
+}

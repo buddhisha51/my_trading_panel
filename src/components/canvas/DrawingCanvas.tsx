@@ -36,6 +36,7 @@ import {
   Transformer,
 } from 'react-konva';
 import { tauriBridge } from '../../services/tauriBridge';
+import { useSettingsStore } from '../../stores/settingsStore';
 import type {
   CandleShape,
   CanvasDocument,
@@ -222,9 +223,30 @@ export function DrawingCanvas({
   const [bgImage, setBgImage] = useState<HTMLImageElement | null>(null);
   const [snipPending, setSnipPending] = useState(false);
 
+  const canvasTools = useSettingsStore((s) => s.settings.canvasTools);
+
   const [history, setHistory] = useState(() => createCanvasHistory(canvasDoc.shapes));
   const dragOriginRef = useRef<{ x: number; y: number } | null>(null);
   const dragLastPosRef = useRef<{ x: number; y: number } | null>(null);
+  const pendingTextPosRef = useRef<{ x: number; y: number } | null>(null);
+  const textInputRef = useRef<HTMLInputElement | null>(null);
+  const textOpenedAtRef = useRef<number>(0);
+
+  const openTextDraft = useCallback(
+    (next: { id: string | null; x: number; y: number; value: string }) => {
+      textOpenedAtRef.current = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      setTextDraft(next);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!textDraft) return;
+    const raf = requestAnimationFrame(() => {
+      textInputRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [textDraft?.id, textDraft?.x, textDraft?.y]);
 
   // Measure container width cleanly
   useEffect(() => {
@@ -444,7 +466,7 @@ export function DrawingCanvas({
     }
 
     if (tool === 'text') {
-      setTextDraft({ id: null, x: pos.x, y: pos.y, value: '' });
+      pendingTextPosRef.current = { x: pos.x, y: pos.y };
       return;
     }
 
@@ -494,9 +516,11 @@ export function DrawingCanvas({
         buildMssArrowFromDrag(tool === 'mss' ? 'MSS' : 'CISD', pos.x, pos.y, pos.x, pos.y, penColor),
       );
     } else if (tool === 'fib') {
-      setDraftShape(buildFibFromDrag(pos.x, pos.y, pos.x, pos.y, penColor, false));
+      setDraftShape(
+        buildFibFromDrag(pos.x, pos.y, pos.x, pos.y, canvasTools.fibHighlightColor, false),
+      );
     } else if (tool === 'ote_fib') {
-      setDraftShape(buildOteFibFromDrag(pos.x, pos.y, pos.x, pos.y, false));
+      setDraftShape(buildOteFibFromDrag(pos.x, pos.y, pos.x, pos.y, false, canvasTools.oteColor));
     }
   };
 
@@ -553,18 +577,32 @@ export function DrawingCanvas({
       });
     } else if (draftShape.type === 'fib_retracement') {
       setDraftShape({
-        ...buildFibFromDrag(origin.x, origin.y, pos.x, pos.y, draftShape.color, false),
+        ...buildFibFromDrag(
+          origin.x,
+          origin.y,
+          pos.x,
+          pos.y,
+          canvasTools.fibHighlightColor,
+          false,
+        ),
         id: draftShape.id,
       });
     } else if (draftShape.type === 'ote_fib') {
       setDraftShape({
-        ...buildOteFibFromDrag(origin.x, origin.y, pos.x, pos.y, false),
+        ...buildOteFibFromDrag(origin.x, origin.y, pos.x, pos.y, false, canvasTools.oteColor),
         id: draftShape.id,
       });
     }
   };
 
   const handleMouseUp = () => {
+    if (pendingTextPosRef.current) {
+      const pt = pendingTextPosRef.current;
+      pendingTextPosRef.current = null;
+      openTextDraft({ id: null, x: pt.x, y: pt.y, value: '' });
+      return;
+    }
+
     if (!draftShape) return;
     const origin = dragOriginRef.current;
     const lastPos = dragLastPosRef.current ?? origin;
@@ -575,12 +613,26 @@ export function DrawingCanvas({
     if (origin && lastPos) {
       if (draftShape.type === 'ote_fib') {
         finalShape = {
-          ...buildOteFibFromDrag(origin.x, origin.y, lastPos.x, lastPos.y, true),
+          ...buildOteFibFromDrag(
+            origin.x,
+            origin.y,
+            lastPos.x,
+            lastPos.y,
+            true,
+            canvasTools.oteColor,
+          ),
           id: draftShape.id,
         };
       } else if (draftShape.type === 'fib_retracement') {
         finalShape = {
-          ...buildFibFromDrag(origin.x, origin.y, lastPos.x, lastPos.y, draftShape.color, true),
+          ...buildFibFromDrag(
+            origin.x,
+            origin.y,
+            lastPos.x,
+            lastPos.y,
+            canvasTools.fibHighlightColor,
+            true,
+          ),
           id: draftShape.id,
         };
       }
@@ -918,10 +970,19 @@ export function DrawingCanvas({
                 stroke={ch.color}
                 strokeWidth={1.5}
                 draggable
+                onDragMove={(ev) => {
+                  ev.cancelBubble = true;
+                  setLiveShapeOverride({
+                    ...ch,
+                    x1: ev.target.x(),
+                    y1: ev.target.y(),
+                  });
+                }}
                 onDragEnd={(ev) => {
                   ev.cancelBubble = true;
                   const nx = ev.target.x();
                   const ny = ev.target.y();
+                  setLiveShapeOverride(null);
                   updateShapeById(ch.id, (prev) =>
                     prev.type === 'channel' ? { ...prev, x1: nx, y1: ny } : prev,
                   );
@@ -935,10 +996,19 @@ export function DrawingCanvas({
                 stroke={ch.color}
                 strokeWidth={1.5}
                 draggable
+                onDragMove={(ev) => {
+                  ev.cancelBubble = true;
+                  setLiveShapeOverride({
+                    ...ch,
+                    x2: ev.target.x(),
+                    y2: ev.target.y(),
+                  });
+                }}
                 onDragEnd={(ev) => {
                   ev.cancelBubble = true;
                   const nx = ev.target.x();
                   const ny = ev.target.y();
+                  setLiveShapeOverride(null);
                   updateShapeById(ch.id, (prev) =>
                     prev.type === 'channel' ? { ...prev, x2: nx, y2: ny } : prev,
                   );
@@ -952,9 +1022,17 @@ export function DrawingCanvas({
                 stroke="#FFFFFF"
                 strokeWidth={1.5}
                 draggable
+                onDragMove={(ev) => {
+                  ev.cancelBubble = true;
+                  setLiveShapeOverride({
+                    ...ch,
+                    offsetY: ev.target.y() - midY,
+                  });
+                }}
                 onDragEnd={(ev) => {
                   ev.cancelBubble = true;
                   const ny = ev.target.y();
+                  setLiveShapeOverride(null);
                   updateShapeById(ch.id, (prev) =>
                     prev.type === 'channel' ? { ...prev, offsetY: ny - midY } : prev,
                   );
@@ -1059,6 +1137,7 @@ export function DrawingCanvas({
             stroke={l.color}
             strokeWidth={selected ? l.strokeWidth + 1 : l.strokeWidth}
             dash={[6, 4]}
+            hitStrokeWidth={12}
           />
           <Text
             x={midX - 18}
@@ -1067,7 +1146,56 @@ export function DrawingCanvas({
             fontSize={11}
             fontStyle="bold"
             fill={l.color}
+            listening={false}
           />
+          {selected && !isPreview && (
+            <>
+              <Circle
+                x={l.x1}
+                y={l.y1}
+                radius={4}
+                fill="#FFFFFF"
+                stroke={l.color}
+                strokeWidth={1.5}
+                draggable
+                onDragMove={(ev) => {
+                  ev.cancelBubble = true;
+                  setLiveShapeOverride({ ...l, x1: ev.target.x(), y1: ev.target.y() });
+                }}
+                onDragEnd={(ev) => {
+                  ev.cancelBubble = true;
+                  const nx = ev.target.x();
+                  const ny = ev.target.y();
+                  setLiveShapeOverride(null);
+                  updateShapeById(l.id, (prev) =>
+                    prev.type === 'liquidity_line' ? { ...prev, x1: nx, y1: ny } : prev,
+                  );
+                }}
+              />
+              <Circle
+                x={l.x2}
+                y={l.y2}
+                radius={4}
+                fill="#FFFFFF"
+                stroke={l.color}
+                strokeWidth={1.5}
+                draggable
+                onDragMove={(ev) => {
+                  ev.cancelBubble = true;
+                  setLiveShapeOverride({ ...l, x2: ev.target.x(), y2: ev.target.y() });
+                }}
+                onDragEnd={(ev) => {
+                  ev.cancelBubble = true;
+                  const nx = ev.target.x();
+                  const ny = ev.target.y();
+                  setLiveShapeOverride(null);
+                  updateShapeById(l.id, (prev) =>
+                    prev.type === 'liquidity_line' ? { ...prev, x2: nx, y2: ny } : prev,
+                  );
+                }}
+              />
+            </>
+          )}
         </Group>
       );
     }
@@ -1099,6 +1227,7 @@ export function DrawingCanvas({
             strokeWidth={selected ? a.strokeWidth + 1 : a.strokeWidth}
             pointerLength={9}
             pointerWidth={8}
+            hitStrokeWidth={12}
           />
           <Text
             x={a.x2 >= a.x1 ? a.x2 + 6 : a.x2 - 36}
@@ -1107,14 +1236,69 @@ export function DrawingCanvas({
             fontSize={11}
             fontStyle="bold"
             fill={a.color}
+            listening={false}
           />
+          {selected && !isPreview && (
+            <>
+              <Circle
+                x={a.x1}
+                y={a.y1}
+                radius={4}
+                fill="#FFFFFF"
+                stroke={a.color}
+                strokeWidth={1.5}
+                draggable
+                onDragMove={(ev) => {
+                  ev.cancelBubble = true;
+                  setLiveShapeOverride({ ...a, x1: ev.target.x(), y1: ev.target.y() });
+                }}
+                onDragEnd={(ev) => {
+                  ev.cancelBubble = true;
+                  const nx = ev.target.x();
+                  const ny = ev.target.y();
+                  setLiveShapeOverride(null);
+                  updateShapeById(a.id, (prev) =>
+                    prev.type === 'mss_arrow' ? { ...prev, x1: nx, y1: ny } : prev,
+                  );
+                }}
+              />
+              <Circle
+                x={a.x2}
+                y={a.y2}
+                radius={4}
+                fill="#FFFFFF"
+                stroke={a.color}
+                strokeWidth={1.5}
+                draggable
+                onDragMove={(ev) => {
+                  ev.cancelBubble = true;
+                  setLiveShapeOverride({ ...a, x2: ev.target.x(), y2: ev.target.y() });
+                }}
+                onDragEnd={(ev) => {
+                  ev.cancelBubble = true;
+                  const nx = ev.target.x();
+                  const ny = ev.target.y();
+                  setLiveShapeOverride(null);
+                  updateShapeById(a.id, (prev) =>
+                    prev.type === 'mss_arrow' ? { ...prev, x2: nx, y2: ny } : prev,
+                  );
+                }}
+              />
+            </>
+          )}
         </Group>
       );
     }
 
     if (s.type === 'fib_retracement') {
       const fib = s as FibRetracementShape;
-      const { levels, goldenTopY, goldenBottomY } = computeFibLevels(fib.startY, fib.endY);
+      const { levels, goldenTopY, goldenBottomY } = computeFibLevels(
+        fib.startY,
+        fib.endY,
+        canvasTools.fibLevels,
+      );
+      const fibBaseColor = canvasTools.fibColor || '#94A3B8';
+      const fibHlColor = canvasTools.fibHighlightColor || fib.color;
       const topY = Math.min(fib.startY, fib.endY);
       const spanH = Math.max(20, Math.abs(fib.endY - fib.startY));
       return (
@@ -1150,14 +1334,15 @@ export function DrawingCanvas({
             y={goldenTopY}
             width={fib.width}
             height={Math.max(4, goldenBottomY - goldenTopY)}
-            fill={fib.color}
-            opacity={0.14}
+            fill={fibHlColor}
+            opacity={canvasTools.fibBandOpacity ?? 0.14}
+            listening={false}
           />
-          {levels.map((lvl) => (
-            <Group key={lvl.ratio}>
+          {levels.map((lvl, idx) => (
+            <Group key={`${idx}-${lvl.ratio}-${lvl.label}`}>
               <Line
                 points={[fib.x, lvl.y, fib.x + fib.width, lvl.y]}
-                stroke={lvl.isHighlight ? fib.color : '#94A3B8'}
+                stroke={lvl.isHighlight ? fibHlColor : fibBaseColor}
                 strokeWidth={lvl.isHighlight ? 1.5 : 1}
                 dash={lvl.isHighlight ? undefined : [4, 3]}
                 hitStrokeWidth={8}
@@ -1168,7 +1353,7 @@ export function DrawingCanvas({
                 text={lvl.label}
                 fontSize={9}
                 fontStyle={lvl.isHighlight ? 'bold' : 'normal'}
-                fill={lvl.isHighlight ? fib.color : '#CBD5E1'}
+                fill={lvl.isHighlight ? fibHlColor : fibBaseColor}
                 listening={false}
               />
             </Group>
@@ -1254,7 +1439,13 @@ export function DrawingCanvas({
 
     if (s.type === 'ote_fib') {
       const f = s as OteFibShape;
-      const { levels, zoneTopY, zoneBottomY } = computeOteFibLevels(f.startY, f.endY);
+      const { levels, zoneTopY, zoneBottomY } = computeOteFibLevels(
+        f.startY,
+        f.endY,
+        canvasTools.oteLevels,
+      );
+      const oteBandColor = canvasTools.oteColor || f.color;
+      const oteSweetColor = canvasTools.oteSweetSpotColor || '#10B981';
       const topY = Math.min(f.startY, f.endY);
       const spanH = Math.max(20, Math.abs(f.endY - f.startY));
       return (
@@ -1291,15 +1482,15 @@ export function DrawingCanvas({
             y={zoneTopY}
             width={f.width}
             height={Math.max(4, zoneBottomY - zoneTopY)}
-            fill={f.color}
-            opacity={0.14}
+            fill={oteBandColor}
+            opacity={canvasTools.oteBandOpacity ?? 0.14}
             listening={false}
           />
-          {levels.map((lvl) => (
-            <Group key={lvl.ratio}>
+          {levels.map((lvl, idx) => (
+            <Group key={`${idx}-${lvl.ratio}-${lvl.label}`}>
               <Line
                 points={[f.x, lvl.y, f.x + f.width, lvl.y]}
-                stroke={lvl.isSweetSpot ? '#10B981' : f.color}
+                stroke={lvl.isSweetSpot ? oteSweetColor : oteBandColor}
                 strokeWidth={lvl.isSweetSpot ? 2 : 1}
                 dash={lvl.isSweetSpot ? undefined : [4, 3]}
                 hitStrokeWidth={10}
@@ -1310,7 +1501,7 @@ export function DrawingCanvas({
                 text={lvl.label}
                 fontSize={10}
                 fontStyle="bold"
-                fill={lvl.isSweetSpot ? '#34D399' : f.color}
+                fill={lvl.isSweetSpot ? oteSweetColor : oteBandColor}
                 listening={false}
               />
             </Group>
@@ -1401,13 +1592,33 @@ export function DrawingCanvas({
         id={t.id}
         x={t.x}
         y={t.y}
+        padding={4}
         text={t.text}
         fontSize={t.fontSize}
         fill={t.color}
         draggable={selectable}
         onClick={() => selectable && setSelectedId(t.id)}
         onTap={() => selectable && setSelectedId(t.id)}
-        onDblClick={() => setTextDraft({ id: t.id, x: t.x, y: t.y, value: t.text })}
+        onDblClick={(ev) => {
+          ev.cancelBubble = true;
+          openTextDraft({ id: t.id, x: t.x, y: t.y, value: t.text });
+        }}
+        onTransformEnd={(ev) => {
+          const node = ev.target;
+          const scale = Math.max(node.scaleX(), node.scaleY());
+          node.scaleX(1);
+          node.scaleY(1);
+          updateShapeById(t.id, (prev) =>
+            prev.type === 'text_note'
+              ? {
+                  ...prev,
+                  x: node.x(),
+                  y: node.y(),
+                  fontSize: Math.max(9, Math.min(48, Math.round(prev.fontSize * scale))),
+                }
+              : prev,
+          );
+        }}
         onDragEnd={(ev) => {
           updateShapeById(t.id, (prev) =>
             prev.type === 'text_note'
@@ -1498,7 +1709,12 @@ export function DrawingCanvas({
               key={c}
               type="button"
               aria-label={`Color ${c}`}
-              onClick={() => setPenColor(c)}
+              onClick={() => {
+                setPenColor(c);
+                if (tool === 'select' && selectedId && selectedId !== BG_NODE_ID) {
+                  updateShapeById(selectedId, (prev) => ({ ...prev, color: c }));
+                }
+              }}
               style={{ backgroundColor: c }}
               className={`h-4 w-4 rounded-full border ${
                 penColor === c ? 'scale-110 border-white' : 'border-transparent opacity-75'
@@ -1698,25 +1914,49 @@ export function DrawingCanvas({
         {/* Inline Floating Text Input Overlay */}
         {textDraft && (
           <form
+            onMouseDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
             onSubmit={(e) => {
               e.preventDefault();
               commitTextDraft();
             }}
             style={{
-              left: Math.min(textDraft.x, Math.max(10, stageSize.width - 150)),
-              top: Math.min(textDraft.y, Math.max(10, stageSize.height - 34)),
+              left: Math.min(textDraft.x, Math.max(10, stageSize.width - 175)),
+              top: Math.min(textDraft.y, Math.max(10, stageSize.height - 38)),
             }}
             className="absolute z-20 flex items-center gap-1 rounded border border-blue-500 bg-slate-950 p-1 shadow-lg"
           >
             <input
+              ref={textInputRef}
               autoFocus
               type="text"
               value={textDraft.value}
               onChange={(e) => setTextDraft({ ...textDraft, value: e.target.value })}
-              onBlur={commitTextDraft}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  setTextDraft(null);
+                }
+              }}
+              onBlur={() => {
+                const nowMs = typeof performance !== 'undefined' ? performance.now() : Date.now();
+                if (nowMs - textOpenedAtRef.current < 200 && !textDraft.value.trim()) {
+                  requestAnimationFrame(() => textInputRef.current?.focus());
+                  return;
+                }
+                commitTextDraft();
+              }}
               placeholder="Label..."
               className="w-28 bg-transparent px-1 text-xs text-slate-100 focus:outline-none"
             />
+            <button
+              type="submit"
+              onMouseDown={(e) => e.preventDefault()}
+              title="Apply text"
+              className="rounded bg-blue-600 px-1.5 py-0.5 text-[10px] font-semibold text-white hover:bg-blue-500"
+            >
+              OK
+            </button>
           </form>
         )}
 

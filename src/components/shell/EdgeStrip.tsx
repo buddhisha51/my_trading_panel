@@ -1,4 +1,3 @@
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp } from 'lucide-react';
 import { DateTime } from 'luxon';
 import { memo, useEffect, useState } from 'react';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -41,15 +40,6 @@ interface EdgeStripProps {
             ? { borderBottom: `2px solid ${light.isActive ? light.color : accentColor}` }
             : { borderTop: `2px solid ${light.isActive ? light.color : accentColor}` };
 
-    const ArrowIcon =
-      edge === 'left'
-        ? ChevronRight
-        : edge === 'right'
-          ? ChevronLeft
-          : edge === 'top'
-            ? ChevronDown
-            : ChevronUp;
-
     return (
       <div
         role="button"
@@ -81,10 +71,6 @@ interface EdgeStripProps {
             }}
           />
         )}
-        <ArrowIcon
-          className="h-3 w-3 text-slate-200 opacity-75 transition-opacity group-hover:opacity-100"
-          strokeWidth={2.5}
-        />
       </div>
     );
 });

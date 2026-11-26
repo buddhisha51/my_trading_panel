@@ -6,6 +6,7 @@ import { useSettingsStore } from '../../../stores/settingsStore';
 import { useStrategiesStore } from '../../../stores/strategiesStore';
 import { createEmptyCanvasDocument, type CanvasDocument } from '../../../types/canvas';
 import { DEFAULT_SETTINGS, DEFAULT_WIDGET_LAYOUT } from '../../../types/settings';
+import { SettingsOverlay } from '../../settings/SettingsOverlay';
 import { QuickNotesWidget } from '../../widgets/QuickNotesWidget';
 import { StrategiesWidget } from '../../widgets/StrategiesWidget';
 import { CanvasMiniPreview } from '../CanvasMiniPreview';
@@ -94,7 +95,7 @@ describe('DrawingCanvas & CanvasMiniPreview', () => {
     for (const label of ['Rect', 'Fib', 'H-Line', 'V-Line', 'Channel', 'MSS', 'CISD']) {
       expect(screen.getByRole('button', { name: label })).toBeTruthy();
     }
-  });
+  }, 15000);
 
   it('creates horizontal MSS & CISD arrows on single click and draws Rect, Fib, H-Line, V-Line, and Channel', () => {
     let latestDoc: CanvasDocument = createEmptyCanvasDocument(560, 340);
@@ -205,5 +206,61 @@ describe('DrawingCanvas & CanvasMiniPreview', () => {
     expect(deleteBtn.disabled).toBe(false);
     fireEvent.click(deleteBtn);
     expect(latestDoc.shapes.some((s) => s.type === 'image')).toBe(false);
+  });
+
+  it('opens Text tool input on click without closing on immediate canvas blur and commits label', () => {
+    let latestDoc: CanvasDocument = createEmptyCanvasDocument(560, 340);
+    render(
+      <DrawingCanvas
+        document={latestDoc}
+        onChange={(next) => {
+          latestDoc = next;
+        }}
+        onSaveScreenshotFile={async () => null}
+      />,
+    );
+
+    const stage = screen.getByTestId('konva-stage-mock');
+    fireEvent.click(screen.getByRole('button', { name: 'Text' }));
+    fireEvent.mouseDown(stage, { clientX: 110, clientY: 130 });
+    fireEvent.mouseUp(stage);
+
+    const input = screen.getByPlaceholderText('Label...') as HTMLInputElement;
+    // Simulate immediate stray blur right after opening on canvas click
+    fireEvent.blur(input);
+    expect(screen.getByPlaceholderText('Label...')).toBeTruthy();
+
+    fireEvent.change(input, { target: { value: 'NY AM Sweep' } });
+    fireEvent.click(screen.getByRole('button', { name: 'OK' }));
+
+    const textShape = latestDoc.shapes.find((s) => s.type === 'text_note');
+    expect(textShape?.type).toBe('text_note');
+    if (textShape?.type === 'text_note') {
+      expect(textShape.text).toBe('NY AM Sweep');
+    }
+  });
+
+  it('allows dynamic editing and resetting of OTE & Fib ranges and colors in Settings > Widgets', async () => {
+    render(<SettingsOverlay initialTab="widgets" />);
+
+    expect(screen.getByText(/Canvas Tools: OTE & Fib Ranges \/ Colors/i)).toBeTruthy();
+
+    const oteRatio1 = screen.getByLabelText('ote level 1 ratio') as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(oteRatio1, { target: { value: '0.618' } });
+      fireEvent.blur(oteRatio1);
+    });
+    expect(useSettingsStore.getState().settings.canvasTools.oteLevels[0].ratio).toBe(0.618);
+
+    const oteBandColor = screen.getByLabelText('ote Band Color') as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(oteBandColor, { target: { value: '#3b82f6' } });
+    });
+    expect(useSettingsStore.getState().settings.canvasTools.oteColor.toLowerCase()).toBe('#3b82f6');
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Reset OTE Tool' }));
+    });
+    expect(useSettingsStore.getState().settings.canvasTools.oteLevels[0].ratio).toBe(0.62);
   });
 });

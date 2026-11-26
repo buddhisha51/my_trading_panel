@@ -1,4 +1,5 @@
 import { DEFAULT_WATCHLIST_PAIRS } from './dailyBias';
+import { cloneDefaultCanvasToolSettings, type CanvasToolSettings } from './canvas';
 import type { DockEdge } from './dock';
 import {
   cloneDefaultInstrumentSpecs,
@@ -187,6 +188,9 @@ export interface AppSettings {
   // Hotkeys & Alerts
   hotkeys: HotkeyConfig;
   notificationsEnabled: boolean;
+
+  // Canvas Tools (OTE & Fib ranges and colors)
+  canvasTools: CanvasToolSettings;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -237,6 +241,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
   hotkeys: { ...DEFAULT_HOTKEYS },
   notificationsEnabled: true,
+
+  canvasTools: cloneDefaultCanvasToolSettings(),
 };
 
 export interface DbStatus {

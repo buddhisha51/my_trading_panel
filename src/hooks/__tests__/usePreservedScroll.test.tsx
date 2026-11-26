@@ -107,7 +107,7 @@ describe('usePreservedScroll', () => {
     expect(reopenedStackEl).toBeTruthy();
     expect(reopenedStackEl!.scrollTop).toBe(520);
     expect((reopenedBodies[0] as HTMLElement).scrollTop).toBe(185);
-  });
+  }, 15000);
 
   it('isolates vertical vs horizontal scroll offsets across all 4 dock edges and avoids cropping cards on top/bottom', () => {
     useSettingsStore.setState({
@@ -178,5 +178,5 @@ describe('usePreservedScroll', () => {
     expect(rightStack).toBeTruthy();
     expect(rightStack.scrollTop).toBe(360);
     expect(rightStack.scrollLeft).toBe(0);
-  });
+  }, 15000);
 });

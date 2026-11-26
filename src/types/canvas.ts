@@ -136,6 +136,52 @@ export interface OteFibShape extends BaseShape {
   endY: number;
 }
 
+export interface FibLevelConfig {
+  ratio: number;
+  label: string;
+  isHighlight: boolean;
+}
+
+export interface CanvasToolSettings {
+  fibColor: string;
+  fibHighlightColor: string;
+  fibBandOpacity: number;
+  fibLevels: FibLevelConfig[];
+  oteColor: string;
+  oteSweetSpotColor: string;
+  oteBandOpacity: number;
+  oteLevels: FibLevelConfig[];
+}
+
+export const DEFAULT_FIB_LEVELS: FibLevelConfig[] = [
+  { ratio: 0, label: '0', isHighlight: false },
+  { ratio: 0.236, label: '0.236', isHighlight: false },
+  { ratio: 0.382, label: '0.382', isHighlight: false },
+  { ratio: 0.5, label: '0.5', isHighlight: true },
+  { ratio: 0.618, label: '0.618', isHighlight: true },
+  { ratio: 0.786, label: '0.786', isHighlight: true },
+  { ratio: 1, label: '1', isHighlight: false },
+];
+
+export const DEFAULT_OTE_LEVELS: FibLevelConfig[] = [
+  { ratio: 0.62, label: '0.62', isHighlight: false },
+  { ratio: 0.705, label: '0.705 OTE', isHighlight: true },
+  { ratio: 0.79, label: '0.79', isHighlight: false },
+];
+
+export function cloneDefaultCanvasToolSettings(): CanvasToolSettings {
+  return {
+    fibColor: '#94A3B8',
+    fibHighlightColor: '#F59E0B',
+    fibBandOpacity: 0.14,
+    fibLevels: DEFAULT_FIB_LEVELS.map((l) => ({ ...l })),
+    oteColor: '#F59E0B',
+    oteSweetSpotColor: '#10B981',
+    oteBandOpacity: 0.14,
+    oteLevels: DEFAULT_OTE_LEVELS.map((l) => ({ ...l })),
+  };
+}
+
 export interface TextNoteShape extends BaseShape {
   type: 'text_note';
   x: number;

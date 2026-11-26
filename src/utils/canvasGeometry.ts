@@ -1,16 +1,19 @@
-import type {
-  CandleShape,
-  CanvasShape,
-  ChannelShape,
-  FibRetracementShape,
-  ImageShape,
-  LiquidityLineShape,
-  LiquidityTag,
-  MssArrowShape,
-  OteFibShape,
-  RectShape,
-  StraightLineShape,
-  ZoneBoxShape,
+import {
+  DEFAULT_FIB_LEVELS,
+  DEFAULT_OTE_LEVELS,
+  type CandleShape,
+  type CanvasShape,
+  type ChannelShape,
+  type FibLevelConfig,
+  type FibRetracementShape,
+  type ImageShape,
+  type LiquidityLineShape,
+  type LiquidityTag,
+  type MssArrowShape,
+  type OteFibShape,
+  type RectShape,
+  type StraightLineShape,
+  type ZoneBoxShape,
 } from '../types/canvas';
 import { generateUlid } from './id';
 
@@ -33,24 +36,30 @@ export interface OteLevelResult {
 export function computeOteFibLevels(
   startY: number,
   endY: number,
+  configuredLevels?: FibLevelConfig[],
 ): {
   levels: OteLevelResult[];
   zoneTopY: number;
   zoneBottomY: number;
 } {
   const span = endY - startY;
-  const y62 = startY + span * 0.62;
-  const y705 = startY + span * 0.705;
-  const y79 = startY + span * 0.79;
+  const source =
+    configuredLevels && configuredLevels.length > 0 ? configuredLevels : DEFAULT_OTE_LEVELS;
+  const levels = source.map((item) => ({
+    ratio: item.ratio,
+    label: item.label || String(item.ratio),
+    y: startY + span * item.ratio,
+    isSweetSpot: item.isHighlight,
+  }));
+
+  const ys = levels.map((l) => l.y);
+  const zoneTopY = ys.length > 0 ? Math.min(...ys) : startY;
+  const zoneBottomY = ys.length > 0 ? Math.max(...ys) : endY;
 
   return {
-    levels: [
-      { ratio: 0.62, label: '0.62', y: y62, isSweetSpot: false },
-      { ratio: 0.705, label: '0.705 OTE', y: y705, isSweetSpot: true },
-      { ratio: 0.79, label: '0.79', y: y79, isSweetSpot: false },
-    ],
-    zoneTopY: Math.min(y62, y79),
-    zoneBottomY: Math.max(y62, y79),
+    levels,
+    zoneTopY,
+    zoneBottomY,
   };
 }
 
@@ -174,38 +183,37 @@ export interface FibLevelResult {
   isHighlight: boolean;
 }
 
-const FIB_RATIOS: ReadonlyArray<{ ratio: number; label: string; isHighlight: boolean }> = [
-  { ratio: 0, label: '0', isHighlight: false },
-  { ratio: 0.236, label: '0.236', isHighlight: false },
-  { ratio: 0.382, label: '0.382', isHighlight: false },
-  { ratio: 0.5, label: '0.5', isHighlight: true },
-  { ratio: 0.618, label: '0.618', isHighlight: true },
-  { ratio: 0.786, label: '0.786', isHighlight: true },
-  { ratio: 1, label: '1', isHighlight: false },
-];
-
 export function computeFibLevels(
   startY: number,
   endY: number,
+  configuredLevels?: FibLevelConfig[],
 ): {
   levels: FibLevelResult[];
   goldenTopY: number;
   goldenBottomY: number;
 } {
   const span = endY - startY;
-  const levels = FIB_RATIOS.map((r) => ({
+  const source =
+    configuredLevels && configuredLevels.length > 0 ? configuredLevels : DEFAULT_FIB_LEVELS;
+  const levels = source.map((r) => ({
     ratio: r.ratio,
-    label: r.label,
+    label: r.label || String(r.ratio),
     y: startY + span * r.ratio,
     isHighlight: r.isHighlight,
   }));
-  const y618 = levels.find((l) => l.ratio === 0.618)!.y;
-  const y786 = levels.find((l) => l.ratio === 0.786)!.y;
+
+  const pocketLevels = levels.filter((l) => l.ratio === 0.618 || l.ratio === 0.786);
+  const bandSource =
+    pocketLevels.length >= 2 ? pocketLevels : levels.filter((l) => l.isHighlight);
+  const bandYs = bandSource.map((l) => l.y);
+
+  const goldenTopY = bandYs.length >= 2 ? Math.min(...bandYs) : bandYs[0] ?? startY;
+  const goldenBottomY = bandYs.length >= 2 ? Math.max(...bandYs) : bandYs[0] ?? startY;
 
   return {
     levels,
-    goldenTopY: Math.min(y618, y786),
-    goldenBottomY: Math.max(y618, y786),
+    goldenTopY,
+    goldenBottomY,
   };
 }
 
@@ -316,6 +324,7 @@ export function buildOteFibFromDrag(
   endX: number,
   endY: number,
   applyTapDefault = false,
+  color = '#F59E0B',
 ): OteFibShape {
   const isTap = Math.abs(endX - startX) < 10 && Math.abs(endY - startY) < 10;
   const x = Math.min(startX, endX);
@@ -329,7 +338,7 @@ export function buildOteFibFromDrag(
     width,
     startY,
     endY: resolvedEndY,
-    color: '#F59E0B',
+    color,
     strokeWidth: 1.5,
   };
 }

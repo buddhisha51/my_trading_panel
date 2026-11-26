@@ -140,5 +140,24 @@ describe('canvasGeometry', () => {
     const imgShape = buildImageShape('notes/n1/snip.png', fitted);
     expect(imgShape.type).toBe('image');
     expect(imgShape.attachmentPath).toBe('notes/n1/snip.png');
+
+    // Dynamic custom OTE & Fib levels override defaults cleanly
+    const customOte = computeOteFibLevels(100, 300, [
+      { ratio: 0.5, label: 'EQ', isHighlight: true },
+      { ratio: 0.75, label: '0.75', isHighlight: false },
+    ]);
+    expect(customOte.levels.map((l) => l.label)).toEqual(['EQ', '0.75']);
+    expect(customOte.levels[0].y).toBeCloseTo(200, 5);
+    expect(customOte.zoneTopY).toBeCloseTo(200, 5);
+    expect(customOte.zoneBottomY).toBeCloseTo(250, 5);
+
+    const customFib = computeFibLevels(100, 300, [
+      { ratio: 0, label: '0', isHighlight: false },
+      { ratio: 0.5, label: '0.5', isHighlight: true },
+      { ratio: 1.272, label: '1.272', isHighlight: true },
+    ]);
+    expect(customFib.levels[2].y).toBeCloseTo(354.4, 5);
+    expect(customFib.goldenTopY).toBeCloseTo(200, 5);
+    expect(customFib.goldenBottomY).toBeCloseTo(354.4, 5);
   });
 });

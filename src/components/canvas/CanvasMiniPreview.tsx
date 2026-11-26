@@ -1,4 +1,5 @@
 import { tauriBridge } from '../../services/tauriBridge';
+import { useSettingsStore } from '../../stores/settingsStore';
 import { parseCanvasDocument } from '../../types/canvas';
 import { computeFibLevels, computeOteFibLevels } from '../../utils/canvasGeometry';
 
@@ -15,6 +16,7 @@ interface CanvasMiniPreviewProps {
     canvasJson,
     size = 'compact',
   }: CanvasMiniPreviewProps) {
+    const canvasTools = useSettingsStore((s) => s.settings.canvasTools);
     const doc = parseCanvasDocument(canvasJson);
     const w = Math.max(120, doc.width || 560);
     const h = Math.max(80, doc.height || 340);
@@ -206,7 +208,9 @@ interface CanvasMiniPreviewProps {
                   </g>
                 );
               case 'fib_retracement': {
-                const fib = computeFibLevels(shape.startY, shape.endY);
+                const fib = computeFibLevels(shape.startY, shape.endY, canvasTools.fibLevels);
+                const hlColor = canvasTools.fibHighlightColor || shape.color;
+                const baseColor = canvasTools.fibColor || '#94A3B8';
                 return (
                   <g key={shape.id}>
                     <rect
@@ -214,17 +218,17 @@ interface CanvasMiniPreviewProps {
                       y={fib.goldenTopY}
                       width={shape.width}
                       height={Math.max(4, fib.goldenBottomY - fib.goldenTopY)}
-                      fill={shape.color}
-                      fillOpacity={0.18}
+                      fill={hlColor}
+                      fillOpacity={canvasTools.fibBandOpacity ?? 0.18}
                     />
                     {fib.levels.map((lvl) => (
                       <line
-                        key={lvl.label}
+                        key={`${lvl.ratio}-${lvl.label}`}
                         x1={shape.x}
                         y1={lvl.y}
                         x2={shape.x + shape.width}
                         y2={lvl.y}
-                        stroke={shape.color}
+                        stroke={lvl.isHighlight ? hlColor : baseColor}
                         strokeWidth={lvl.isHighlight ? 2.5 : 1.5}
                       />
                     ))}
@@ -232,7 +236,9 @@ interface CanvasMiniPreviewProps {
                 );
               }
               case 'ote_fib': {
-                const ote = computeOteFibLevels(shape.startY, shape.endY);
+                const ote = computeOteFibLevels(shape.startY, shape.endY, canvasTools.oteLevels);
+                const bandColor = canvasTools.oteColor || shape.color;
+                const sweetColor = canvasTools.oteSweetSpotColor || '#10B981';
                 return (
                   <g key={shape.id}>
                     <rect
@@ -240,17 +246,17 @@ interface CanvasMiniPreviewProps {
                       y={ote.zoneTopY}
                       width={shape.width}
                       height={Math.max(4, ote.zoneBottomY - ote.zoneTopY)}
-                      fill={shape.color}
-                      fillOpacity={0.22}
+                      fill={bandColor}
+                      fillOpacity={canvasTools.oteBandOpacity ?? 0.22}
                     />
                     {ote.levels.map((lvl) => (
                       <line
-                        key={lvl.label}
+                        key={`${lvl.ratio}-${lvl.label}`}
                         x1={shape.x}
                         y1={lvl.y}
                         x2={shape.x + shape.width}
                         y2={lvl.y}
-                        stroke={shape.color}
+                        stroke={lvl.isSweetSpot ? sweetColor : bandColor}
                         strokeWidth={lvl.isSweetSpot ? 3 : 2}
                       />
                     ))}

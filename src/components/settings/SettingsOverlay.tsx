@@ -32,6 +32,7 @@ import {
   RotateCcw,
   Rss,
   Sliders,
+  Star,
   Timer,
   Trash2,
   Upload,
@@ -49,6 +50,10 @@ import { useNotesStore } from '../../stores/notesStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useStrategiesStore } from '../../stores/strategiesStore';
 import type { BackupRestoreMode } from '../../types/backup';
+import {
+  cloneDefaultCanvasToolSettings,
+  type FibLevelConfig,
+} from '../../types/canvas';
 import type { DockEdge } from '../../types/dock';
 import {
   DEFAULT_HOTKEYS,
@@ -237,6 +242,190 @@ function SortableWidgetManagerRow({
 }
 
 const ACCENT_SWATCHES = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#06B6D4'];
+
+interface CanvasFibLevelsEditorProps {
+  title: string;
+  sectionId: 'ote' | 'fib';
+  primaryColorLabel: string;
+  primaryColor: string;
+  onChangePrimaryColor: (hex: string) => void;
+  secondaryColorLabel: string;
+  secondaryColor: string;
+  onChangeSecondaryColor: (hex: string) => void;
+  bandOpacity: number;
+  onChangeBandOpacity: (opacity: number) => void;
+  levels: FibLevelConfig[];
+  onChangeLevels: (next: FibLevelConfig[]) => void;
+  onReset: () => void;
+}
+
+function CanvasFibLevelsEditor({
+  title,
+  sectionId,
+  primaryColorLabel,
+  primaryColor,
+  onChangePrimaryColor,
+  secondaryColorLabel,
+  secondaryColor,
+  onChangeSecondaryColor,
+  bandOpacity,
+  onChangeBandOpacity,
+  levels,
+  onChangeLevels,
+  onReset,
+}: CanvasFibLevelsEditorProps) {
+  const [ratioDrafts, setRatioDrafts] = useState<string[]>(() =>
+    levels.map((l) => String(l.ratio)),
+  );
+
+  useEffect(() => {
+    setRatioDrafts(levels.map((l) => String(l.ratio)));
+  }, [levels]);
+
+  const updateLevel = (idx: number, patch: Partial<FibLevelConfig>) => {
+    onChangeLevels(levels.map((lvl, i) => (i === idx ? { ...lvl, ...patch } : lvl)));
+  };
+
+  return (
+    <div className="space-y-2 rounded border border-slate-800 bg-slate-950/70 p-2">
+      <div className="flex items-center justify-between">
+        <span className="font-semibold text-slate-200">{title}</span>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() =>
+              onChangeLevels([
+                ...levels,
+                { ratio: 0.5, label: '0.5', isHighlight: false },
+              ])
+            }
+            className="inline-flex items-center gap-0.5 rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 text-[10px] text-blue-300 hover:bg-slate-800"
+          >
+            <Plus className="h-2.5 w-2.5" />
+            Add Level
+          </button>
+          <button
+            type="button"
+            onClick={onReset}
+            title={`Reset ${title} defaults`}
+            aria-label={`Reset ${title}`}
+            className="rounded border border-slate-800 bg-slate-900 px-1.5 py-0.5 text-[10px] text-slate-400 hover:text-slate-200"
+          >
+            Reset
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-1.5 text-[10px]">
+        <label className="space-y-0.5">
+          <span className="text-slate-400">{primaryColorLabel}</span>
+          <div className="flex items-center gap-1 rounded border border-slate-800 bg-slate-900 px-1 py-0.5">
+            <input
+              type="color"
+              aria-label={`${sectionId} ${primaryColorLabel}`}
+              value={primaryColor}
+              onChange={(e) => onChangePrimaryColor(e.target.value)}
+              className="h-4 w-5 cursor-pointer bg-transparent"
+            />
+            <span className="truncate font-mono text-[9px] text-slate-300">{primaryColor}</span>
+          </div>
+        </label>
+        <label className="space-y-0.5">
+          <span className="text-slate-400">{secondaryColorLabel}</span>
+          <div className="flex items-center gap-1 rounded border border-slate-800 bg-slate-900 px-1 py-0.5">
+            <input
+              type="color"
+              aria-label={`${sectionId} ${secondaryColorLabel}`}
+              value={secondaryColor}
+              onChange={(e) => onChangeSecondaryColor(e.target.value)}
+              className="h-4 w-5 cursor-pointer bg-transparent"
+            />
+            <span className="truncate font-mono text-[9px] text-slate-300">{secondaryColor}</span>
+          </div>
+        </label>
+        <label className="space-y-0.5">
+          <span className="text-slate-400">
+            Band Opacity ({Math.round(bandOpacity * 100)}%)
+          </span>
+          <input
+            type="range"
+            aria-label={`${sectionId} Band Opacity`}
+            min={0.05}
+            max={0.5}
+            step={0.02}
+            value={bandOpacity}
+            onChange={(e) => onChangeBandOpacity(Number(e.target.value))}
+            className="mt-1 w-full accent-blue-500"
+          />
+        </label>
+      </div>
+
+      <div className="space-y-1">
+        {levels.map((lvl, idx) => (
+          <div key={idx} className="flex items-center gap-1">
+            <input
+              type="text"
+              inputMode="decimal"
+              aria-label={`${sectionId} level ${idx + 1} ratio`}
+              value={ratioDrafts[idx] ?? String(lvl.ratio)}
+              onChange={(e) => {
+                const raw = e.target.value;
+                setRatioDrafts((prev) => prev.map((v, i) => (i === idx ? raw : v)));
+                const parsed = Number(raw);
+                if (raw.trim() && raw.trim() !== '-' && Number.isFinite(parsed)) {
+                  updateLevel(idx, { ratio: parsed });
+                }
+              }}
+              onBlur={() => {
+                const raw = ratioDrafts[idx] ?? '';
+                const parsed = Number(raw);
+                if (!raw.trim() || !Number.isFinite(parsed)) {
+                  setRatioDrafts((prev) =>
+                    prev.map((v, i) => (i === idx ? String(lvl.ratio) : v)),
+                  );
+                }
+              }}
+              placeholder="0.62"
+              className="w-16 rounded border border-slate-800 bg-slate-900 px-1.5 py-0.5 font-mono text-[10px] text-slate-100"
+            />
+            <input
+              type="text"
+              aria-label={`${sectionId} level ${idx + 1} label`}
+              value={lvl.label}
+              onChange={(e) => updateLevel(idx, { label: e.target.value })}
+              placeholder="Label"
+              className="min-w-0 flex-1 rounded border border-slate-800 bg-slate-900 px-1.5 py-0.5 text-[10px] text-slate-100"
+            />
+            <button
+              type="button"
+              onClick={() => updateLevel(idx, { isHighlight: !lvl.isHighlight })}
+              title="Toggle Sweet-Spot / Highlight"
+              aria-label={`Toggle highlight ${sectionId} level ${idx + 1}`}
+              aria-pressed={lvl.isHighlight}
+              className={`rounded border p-1 ${
+                lvl.isHighlight
+                  ? 'border-amber-500/40 bg-amber-500/15 text-amber-300'
+                  : 'border-slate-800 bg-slate-900 text-slate-500 hover:text-slate-300'
+              }`}
+            >
+              <Star className="h-2.5 w-2.5" fill={lvl.isHighlight ? 'currentColor' : 'none'} />
+            </button>
+            <button
+              type="button"
+              disabled={levels.length <= 1}
+              onClick={() => onChangeLevels(levels.filter((_, i) => i !== idx))}
+              title="Delete level"
+              aria-label={`Delete ${sectionId} level ${idx + 1}`}
+              className="rounded p-1 text-slate-500 hover:bg-slate-800 hover:text-rose-400 disabled:opacity-30"
+            >
+              <Trash2 className="h-2.5 w-2.5" />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 const COMMON_TIMEZONES = [
   'America/New_York',
@@ -1201,6 +1390,102 @@ export function SettingsOverlay({ initialTab = 'dock' }: SettingsOverlayProps) {
                       </div>
                     </SortableContext>
                   </DndContext>
+                </section>
+
+                {/* Canvas OTE & Fibonacci Ranges & Colors */}
+                <section className="space-y-2 rounded-lg border border-slate-800 bg-slate-900/60 p-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="inline-flex items-center gap-1.5 font-medium text-slate-200">
+                      <Sliders className="h-3.5 w-3.5 text-blue-400" />
+                      Canvas Tools: OTE &amp; Fib Ranges / Colors
+                    </span>
+                  </div>
+
+                  <CanvasFibLevelsEditor
+                    title="OTE Tool"
+                    sectionId="ote"
+                    primaryColorLabel="Band Color"
+                    primaryColor={settings.canvasTools.oteColor}
+                    onChangePrimaryColor={(oteColor) =>
+                      void updateSettings({
+                        canvasTools: { ...settings.canvasTools, oteColor },
+                      })
+                    }
+                    secondaryColorLabel="Sweet Spot Color"
+                    secondaryColor={settings.canvasTools.oteSweetSpotColor}
+                    onChangeSecondaryColor={(oteSweetSpotColor) =>
+                      void updateSettings({
+                        canvasTools: { ...settings.canvasTools, oteSweetSpotColor },
+                      })
+                    }
+                    bandOpacity={settings.canvasTools.oteBandOpacity}
+                    onChangeBandOpacity={(oteBandOpacity) =>
+                      void updateSettings({
+                        canvasTools: { ...settings.canvasTools, oteBandOpacity },
+                      })
+                    }
+                    levels={settings.canvasTools.oteLevels}
+                    onChangeLevels={(oteLevels) =>
+                      void updateSettings({
+                        canvasTools: { ...settings.canvasTools, oteLevels },
+                      })
+                    }
+                    onReset={() => {
+                      const d = cloneDefaultCanvasToolSettings();
+                      void updateSettings({
+                        canvasTools: {
+                          ...settings.canvasTools,
+                          oteColor: d.oteColor,
+                          oteSweetSpotColor: d.oteSweetSpotColor,
+                          oteBandOpacity: d.oteBandOpacity,
+                          oteLevels: d.oteLevels,
+                        },
+                      });
+                    }}
+                  />
+
+                  <CanvasFibLevelsEditor
+                    title="Fib Retracement Tool"
+                    sectionId="fib"
+                    primaryColorLabel="Base Color"
+                    primaryColor={settings.canvasTools.fibColor}
+                    onChangePrimaryColor={(fibColor) =>
+                      void updateSettings({
+                        canvasTools: { ...settings.canvasTools, fibColor },
+                      })
+                    }
+                    secondaryColorLabel="Highlight / Pocket"
+                    secondaryColor={settings.canvasTools.fibHighlightColor}
+                    onChangeSecondaryColor={(fibHighlightColor) =>
+                      void updateSettings({
+                        canvasTools: { ...settings.canvasTools, fibHighlightColor },
+                      })
+                    }
+                    bandOpacity={settings.canvasTools.fibBandOpacity}
+                    onChangeBandOpacity={(fibBandOpacity) =>
+                      void updateSettings({
+                        canvasTools: { ...settings.canvasTools, fibBandOpacity },
+                      })
+                    }
+                    levels={settings.canvasTools.fibLevels}
+                    onChangeLevels={(fibLevels) =>
+                      void updateSettings({
+                        canvasTools: { ...settings.canvasTools, fibLevels },
+                      })
+                    }
+                    onReset={() => {
+                      const d = cloneDefaultCanvasToolSettings();
+                      void updateSettings({
+                        canvasTools: {
+                          ...settings.canvasTools,
+                          fibColor: d.fibColor,
+                          fibHighlightColor: d.fibHighlightColor,
+                          fibBandOpacity: d.fibBandOpacity,
+                          fibLevels: d.fibLevels,
+                        },
+                      });
+                    }}
+                  />
                 </section>
 
                 {/* Optional Finnhub Key via Windows Credential Manager */}

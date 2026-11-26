@@ -25,6 +25,8 @@ pub struct WidgetLayoutRecord {
     pub is_collapsed: bool,
     pub sort_order: i64,
     pub custom_height: Option<i64>,
+    #[serde(default)]
+    pub custom_width: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -104,7 +106,7 @@ pub async fn set_settings_batch(
 #[tauri::command]
 pub async fn get_widget_layout(state: State<'_, DbState>) -> Result<Vec<WidgetLayoutRecord>, String> {
     let rows = sqlx::query(
-        "SELECT widget_id, is_visible, is_collapsed, sort_order, custom_height FROM widget_layout ORDER BY sort_order ASC",
+        "SELECT widget_id, is_visible, is_collapsed, sort_order, custom_height, custom_width FROM widget_layout ORDER BY sort_order ASC",
     )
     .fetch_all(&state.pool)
     .await
@@ -118,6 +120,7 @@ pub async fn get_widget_layout(state: State<'_, DbState>) -> Result<Vec<WidgetLa
                 is_collapsed: row.try_get::<i64, _>("is_collapsed").map_err(|e| e.to_string())? != 0,
                 sort_order: row.try_get("sort_order").map_err(|e| e.to_string())?,
                 custom_height: row.try_get("custom_height").map_err(|e| e.to_string())?,
+                custom_width: row.try_get("custom_width").map_err(|e| e.to_string())?,
             })
         })
         .collect()
@@ -132,13 +135,14 @@ pub async fn save_widget_layout(
     for item in items {
         sqlx::query(
             r#"
-            INSERT INTO widget_layout (widget_id, is_visible, is_collapsed, sort_order, custom_height)
-            VALUES (?1, ?2, ?3, ?4, ?5)
+            INSERT INTO widget_layout (widget_id, is_visible, is_collapsed, sort_order, custom_height, custom_width)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
             ON CONFLICT(widget_id) DO UPDATE SET
                 is_visible    = excluded.is_visible,
                 is_collapsed  = excluded.is_collapsed,
                 sort_order    = excluded.sort_order,
-                custom_height = excluded.custom_height
+                custom_height = excluded.custom_height,
+                custom_width  = excluded.custom_width
             "#,
         )
         .bind(item.widget_id)
@@ -146,6 +150,7 @@ pub async fn save_widget_layout(
         .bind(if item.is_collapsed { 1 } else { 0 })
         .bind(item.sort_order)
         .bind(item.custom_height)
+        .bind(item.custom_width)
         .execute(&mut *tx)
         .await
         .map_err(|e| e.to_string())?;

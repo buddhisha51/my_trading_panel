@@ -1,4 +1,5 @@
 import { AlertTriangle, Keyboard, Settings2, X } from 'lucide-react';
+import { usePreservedScroll } from '../../hooks/usePreservedScroll';
 import { useDockStore } from '../../stores/dockStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import {
@@ -17,6 +18,7 @@ export function HotkeySheetModal({ onOpenHotkeySettings }: HotkeySheetModalProps
   const setHotkeysOpen = useDockStore((s) => s.setHotkeysOpen);
   const setSettingsOpen = useDockStore((s) => s.setSettingsOpen);
   const hotkeyConflicts = useDockStore((s) => s.hotkeyConflicts);
+  const contentScrollRef = usePreservedScroll<HTMLDivElement>('hotkey-sheet-modal');
 
   const scopes: Array<StaticShortcutInfo['scope']> = [
     'Panel Navigation',
@@ -67,18 +69,17 @@ export function HotkeySheetModal({ onOpenHotkeySettings }: HotkeySheetModalProps
       </div>
 
       {/* Shortcut Tables */}
-      <div className="flex-1 space-y-4 overflow-y-auto p-3 text-xs">
+      <div ref={contentScrollRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3 text-xs">
         <section className="space-y-1.5">
           <div className="flex items-center justify-between">
             <h3 className="text-[11px] font-semibold uppercase tracking-wider text-blue-300">
               Global Hotkeys (Work Over TradingView &amp; MT5)
             </h3>
             <span
-              className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                hotkeys.enabled
+              className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${hotkeys.enabled
                   ? 'bg-emerald-500/15 text-emerald-300'
                   : 'bg-slate-800 text-slate-400'
-              }`}
+                }`}
             >
               {hotkeys.enabled ? 'Active' : 'Paused'}
             </span>

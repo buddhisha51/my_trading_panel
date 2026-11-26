@@ -16,6 +16,7 @@ import {
 } from '@dnd-kit/sortable';
 import { Layers } from 'lucide-react';
 import { DateTime } from 'luxon';
+import { usePreservedScroll } from '../../hooks/usePreservedScroll';
 import { useDailyBiasStore } from '../../stores/dailyBiasStore';
 import { useDockStore } from '../../stores/dockStore';
 import { useJournalStore } from '../../stores/journalStore';
@@ -55,6 +56,8 @@ export function WidgetStack({ now, layout }: WidgetStackProps) {
   const widgetLayout = useSettingsStore((s) => s.widgetLayout);
   const settings = useSettingsStore((s) => s.settings);
   const toggleWidgetCollapsed = useSettingsStore((s) => s.toggleWidgetCollapsed);
+  const setWidgetHeight = useSettingsStore((s) => s.setWidgetHeight);
+  const setWidgetWidth = useSettingsStore((s) => s.setWidgetWidth);
   const reorderWidgets = useSettingsStore((s) => s.reorderWidgets);
 
   const entriesByPair = useDailyBiasStore((s) => s.entriesByPair);
@@ -66,6 +69,7 @@ export function WidgetStack({ now, layout }: WidgetStackProps) {
   const newsCount = useMarketStore((s) => s.news.length);
   const setSettingsOpen = useDockStore((s) => s.setSettingsOpen);
   const setReorderingWidgets = useDockStore((s) => s.setReorderingWidgets);
+  const stackScrollRef = usePreservedScroll<HTMLDivElement>(`widget-stack:${layout}`);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -84,10 +88,42 @@ export function WidgetStack({ now, layout }: WidgetStackProps) {
 
   const containerClass =
     layout === 'horizontal'
-      ? 'grid auto-cols-[310px] grid-flow-col items-start gap-2.5 overflow-x-auto overflow-y-hidden p-2.5'
+      ? 'flex min-h-0 min-w-0 flex-row items-start gap-2.5 overflow-x-auto overflow-y-auto p-2.5'
       : layout === 'grid'
-        ? 'grid grid-cols-1 items-start gap-4 overflow-auto p-5 md:grid-cols-2 xl:grid-cols-3'
-        : 'flex flex-col gap-2 overflow-y-auto p-2.5';
+        ? 'grid min-h-0 min-w-0 grid-cols-1 items-start gap-4 overflow-auto p-5 md:grid-cols-2 xl:grid-cols-3'
+        : 'flex min-h-0 min-w-0 flex-col gap-2 overflow-y-auto overflow-x-hidden p-2.5';
+
+  const frameClassName =
+    layout === 'horizontal'
+      ? 'max-h-full shrink-0'
+      : layout === 'vertical'
+        ? 'w-full min-w-0 shrink-0'
+        : 'min-w-0';
+
+  const handleHorizontalWheel =
+    layout === 'horizontal'
+      ? (e: React.WheelEvent<HTMLDivElement>) => {
+          if (Math.abs(e.deltaX) > Math.abs(e.deltaY) || e.deltaY === 0) return;
+          const container = e.currentTarget;
+          let node = e.target as HTMLElement | null;
+          while (node && node !== container) {
+            const overflowY = window.getComputedStyle(node).overflowY;
+            const canScrollY =
+              (overflowY === 'auto' || overflowY === 'scroll') &&
+              node.scrollHeight > node.clientHeight + 1;
+            if (canScrollY) {
+              const atTop = node.scrollTop <= 0 && e.deltaY < 0;
+              const atBottom =
+                node.scrollTop + node.clientHeight >= node.scrollHeight - 1 && e.deltaY > 0;
+              if (!atTop && !atBottom) return;
+            }
+            node = node.parentElement;
+          }
+          if (container.scrollWidth > container.clientWidth) {
+            container.scrollLeft += e.deltaY;
+          }
+        }
+      : undefined;
 
   const handleDragEnd = (event: DragEndEvent) => {
     setReorderingWidgets(false);
@@ -199,13 +235,12 @@ export function WidgetStack({ now, layout }: WidgetStackProps) {
       const pnl = journalMetrics.netPnl;
       return (
         <span
-          className={`rounded px-1.5 py-0.5 font-mono text-[10px] font-medium ${
-            ddAlert
+          className={`rounded px-1.5 py-0.5 font-mono text-[10px] font-medium ${ddAlert
               ? 'bg-rose-500/20 text-rose-300'
               : pnl >= 0
                 ? 'bg-emerald-500/15 text-emerald-300'
                 : 'bg-rose-500/15 text-rose-300'
-          }`}
+            }`}
         >
           {ddAlert ? 'DD ALERT' : `${pnl >= 0 ? '+' : ''}$${pnl.toFixed(0)}`}
         </span>
@@ -290,7 +325,12 @@ export function WidgetStack({ now, layout }: WidgetStackProps) {
       onDragCancel={() => setReorderingWidgets(false)}
     >
       <SortableContext items={visibleIds} strategy={strategy}>
-        <div className={`flex-1 ${containerClass}`}>
+        <div
+          key={layout}
+          ref={stackScrollRef}
+          onWheel={handleHorizontalWheel}
+          className={`flex-1 ${containerClass}`}
+        >
           {visibleWidgets.map((layoutItem) => {
             const meta = WIDGET_CATALOG.find((m) => m.id === layoutItem.widgetId);
             if (!meta) return null;
@@ -301,7 +341,13 @@ export function WidgetStack({ now, layout }: WidgetStackProps) {
                 title={meta.title}
                 badge={renderBadge(meta.id, meta.milestone)}
                 isCollapsed={layout === 'grid' ? false : layoutItem.isCollapsed}
+                resizeAxis={layout === 'horizontal' ? 'horizontal' : 'vertical'}
+                customHeight={layoutItem.customHeight}
+                customWidth={layoutItem.customWidth ?? null}
+                className={frameClassName}
                 onToggleCollapse={() => void toggleWidgetCollapsed(meta.id)}
+                onResizeHeight={(h) => void setWidgetHeight(meta.id, h)}
+                onResizeWidth={(w) => void setWidgetWidth(meta.id, w)}
               >
                 {renderWidgetBody(meta.id, meta.description)}
               </WidgetFrame>

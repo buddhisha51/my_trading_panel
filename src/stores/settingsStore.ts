@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import { tauriBridge } from '../services/tauriBridge';
 import {
+  clampWidgetHeight,
+  clampWidgetWidth,
   DEFAULT_SETTINGS,
   DEFAULT_WIDGET_LAYOUT,
   WIDGET_CATALOG,
@@ -24,6 +26,8 @@ interface SettingsState {
   updateSettings: (patch: Partial<AppSettings>) => Promise<void>;
   toggleWidgetVisibility: (widgetId: WidgetId) => Promise<void>;
   toggleWidgetCollapsed: (widgetId: WidgetId) => Promise<void>;
+  setWidgetHeight: (widgetId: WidgetId, height: number | null) => Promise<void>;
+  setWidgetWidth: (widgetId: WidgetId, width: number | null) => Promise<void>;
   moveWidget: (widgetId: WidgetId, direction: 'up' | 'down') => Promise<void>;
   reorderWidgets: (activeId: WidgetId, overId: WidgetId) => Promise<void>;
   saveFinnhubKey: (key: string) => Promise<void>;
@@ -55,7 +59,7 @@ function reconcileWidgetLayout(rows: WidgetLayoutItem[]): WidgetLayoutItem[] {
 
   for (const row of rows) {
     if (WIDGET_CATALOG.some((c) => c.id === row.widgetId)) {
-      result.push({ ...row });
+      result.push({ ...row, customWidth: row.customWidth ?? null });
     }
   }
   for (const catalogItem of WIDGET_CATALOG) {
@@ -66,6 +70,7 @@ function reconcileWidgetLayout(rows: WidgetLayoutItem[]): WidgetLayoutItem[] {
         isCollapsed: false,
         sortOrder: result.length,
         customHeight: null,
+        customWidth: null,
       });
     }
   }
@@ -147,6 +152,24 @@ export const useSettingsStore = create<SettingsState>()(
       set((state) => {
         const item = state.widgetLayout.find((w) => w.widgetId === widgetId);
         if (item) item.isCollapsed = !item.isCollapsed;
+      });
+      await tauriBridge.saveWidgetLayout(get().widgetLayout);
+    },
+
+    setWidgetHeight: async (widgetId, height) => {
+      const normalized = height === null ? null : clampWidgetHeight(height);
+      set((state) => {
+        const item = state.widgetLayout.find((w) => w.widgetId === widgetId);
+        if (item) item.customHeight = normalized;
+      });
+      await tauriBridge.saveWidgetLayout(get().widgetLayout);
+    },
+
+    setWidgetWidth: async (widgetId, width) => {
+      const normalized = width === null ? null : clampWidgetWidth(width);
+      set((state) => {
+        const item = state.widgetLayout.find((w) => w.widgetId === widgetId);
+        if (item) item.customWidth = normalized;
       });
       await tauriBridge.saveWidgetLayout(get().widgetLayout);
     },

@@ -205,5 +205,19 @@ export function suggestTakeProfitForR(
   const delta = Math.abs(entryPrice - stopLoss) * rTarget;
   const tp = entryPrice > stopLoss ? entryPrice + delta : entryPrice - delta;
   if (tp <= 0) return null;
-  return Number(tp.toFixed(decimals));
+  const safeDecimals = Math.max(0, Math.min(8, Math.round(decimals)));
+  return Number(tp.toFixed(safeDecimals));
+}
+
+/**
+ * Pluralizes unit names cleanly (e.g. `tick ($0.01)` -> `ticks ($0.01)`, `pip` -> `pips`).
+ */
+export function formatTickPlural(tickLabel: string, count: number): string {
+  const isSingular = Math.abs(count - 1) < 1e-6;
+  if (isSingular) return tickLabel;
+  if (tickLabel.startsWith('tick (')) {
+    return tickLabel.replace(/^tick \(/, 'ticks (');
+  }
+  if (tickLabel.endsWith('s')) return tickLabel;
+  return `${tickLabel}s`;
 }

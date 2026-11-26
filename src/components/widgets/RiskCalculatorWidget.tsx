@@ -1,38 +1,115 @@
 import { AlertTriangle, Check, Copy, Plus, SlidersHorizontal, Trash2 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import type { InstrumentSpec } from '../../types/risk';
 import {
   calculatePositionSize,
+  formatTickPlural,
   suggestTakeProfitForR,
 } from '../../utils/riskCalculator';
+
+function getInitialPricesForSymbol(symbol: string): { entry: string; sl: string; tp: string } {
+  switch (symbol.toUpperCase()) {
+    case 'EURUSD':
+      return { entry: '1.08500', sl: '1.08350', tp: '1.08950' };
+    case 'XAUUSD':
+      return { entry: '2650.00', sl: '2642.00', tp: '2674.00' };
+    case 'USDJPY':
+      return { entry: '150.000', sl: '149.700', tp: '150.900' };
+    case 'GBPJPY':
+      return { entry: '192.500', sl: '192.250', tp: '193.000' };
+    case 'NAS100':
+      return { entry: '20500', sl: '20475', tp: '20550' };
+    default:
+      return { entry: '', sl: '', tp: '' };
+  }
+}
+
+function countDecimals(text: string): number {
+  const dotIdx = text.indexOf('.');
+  if (dotIdx < 0) return 0;
+  return text.slice(dotIdx + 1).replace(/[^0-9]/g, '').length;
+}
 
 export function RiskCalculatorWidget() {
   const settings = useSettingsStore((s) => s.settings);
   const updateSettings = useSettingsStore((s) => s.updateSettings);
 
-  const [entryText, setEntryText] = useState('1.08500');
-  const [slText, setSlText] = useState('1.08350');
-  const [tpText, setTpText] = useState('1.08950');
-  const [showSpecEditor, setShowSpecEditor] = useState(false);
-  const [copiedLots, setCopiedLots] = useState(false);
-  const [customSymbolDraft, setCustomSymbolDraft] = useState('');
-
   const specs = settings.instrumentSpecs;
   const activeSpec =
     specs.find((s) => s.symbol === settings.selectedInstrument) ?? specs[0];
 
+  const [initialPrices] = useState(() => getInitialPricesForSymbol(activeSpec.symbol));
+  const [entryText, setEntryText] = useState(initialPrices.entry);
+  const [slText, setSlText] = useState(initialPrices.sl);
+  const [tpText, setTpText] = useState(initialPrices.tp);
+  const [equityText, setEquityText] = useState(() => String(settings.riskEquity));
+  const [riskPctText, setRiskPctText] = useState(() => String(settings.riskPercent));
+  const [riskDollarText, setRiskDollarText] = useState(() => String(settings.riskDollars));
+  const [tickSizeText, setTickSizeText] = useState(() => String(activeSpec.tickSize));
+  const [contractText, setContractText] = useState(() => String(activeSpec.contractSize));
+  const [tickValText, setTickValText] = useState(() => String(activeSpec.tickValuePerLot));
+  const [usdJpyText, setUsdJpyText] = useState(() => String(settings.conversionRates.usdJpy));
+  const [gbpUsdText, setGbpUsdText] = useState(() => String(settings.conversionRates.gbpUsd));
+
+  const [showSpecEditor, setShowSpecEditor] = useState(false);
+  const [copiedLots, setCopiedLots] = useState(false);
+  const [customSymbolDraft, setCustomSymbolDraft] = useState('');
+
+  useEffect(() => {
+    setEquityText((prev) =>
+      Number(prev) === settings.riskEquity && prev !== '' ? prev : String(settings.riskEquity),
+    );
+  }, [settings.riskEquity]);
+
+  useEffect(() => {
+    setRiskPctText((prev) =>
+      Number(prev) === settings.riskPercent && prev !== '' ? prev : String(settings.riskPercent),
+    );
+  }, [settings.riskPercent]);
+
+  useEffect(() => {
+    setRiskDollarText((prev) =>
+      Number(prev) === settings.riskDollars && prev !== '' ? prev : String(settings.riskDollars),
+    );
+  }, [settings.riskDollars]);
+
+  useEffect(() => {
+    setTickSizeText(String(activeSpec.tickSize));
+    setContractText(String(activeSpec.contractSize));
+    setTickValText(String(activeSpec.tickValuePerLot));
+  }, [activeSpec.symbol, activeSpec.tickSize, activeSpec.contractSize, activeSpec.tickValuePerLot]);
+
+  useEffect(() => {
+    setUsdJpyText((prev) =>
+      Number(prev) === settings.conversionRates.usdJpy && prev !== ''
+        ? prev
+        : String(settings.conversionRates.usdJpy),
+    );
+  }, [settings.conversionRates.usdJpy]);
+
+  useEffect(() => {
+    setGbpUsdText((prev) =>
+      Number(prev) === settings.conversionRates.gbpUsd && prev !== ''
+        ? prev
+        : String(settings.conversionRates.gbpUsd),
+    );
+  }, [settings.conversionRates.gbpUsd]);
+
   const entryNum = entryText.trim() ? Number(entryText) : null;
   const slNum = slText.trim() ? Number(slText) : null;
   const tpNum = tpText.trim() ? Number(tpText) : null;
+  const liveEquity = equityText.trim() ? Number(equityText) : 0;
+  const liveRiskPct = riskPctText.trim() ? Number(riskPctText) : 0;
+  const liveRiskDollars = riskDollarText.trim() ? Number(riskDollarText) : 0;
 
   const result = useMemo(
     () =>
       calculatePositionSize({
-        equity: settings.riskEquity,
+        equity: Number.isFinite(liveEquity) ? liveEquity : 0,
         riskMode: settings.riskMode,
-        riskPercent: settings.riskPercent,
-        riskDollars: settings.riskDollars,
+        riskPercent: Number.isFinite(liveRiskPct) ? liveRiskPct : 0,
+        riskDollars: Number.isFinite(liveRiskDollars) ? liveRiskDollars : 0,
         entryPrice: entryNum !== null && Number.isFinite(entryNum) ? entryNum : null,
         stopLoss: slNum !== null && Number.isFinite(slNum) ? slNum : null,
         takeProfit: tpNum !== null && Number.isFinite(tpNum) ? tpNum : null,
@@ -42,11 +119,11 @@ export function RiskCalculatorWidget() {
     [
       activeSpec,
       entryNum,
+      liveEquity,
+      liveRiskDollars,
+      liveRiskPct,
       settings.conversionRates,
-      settings.riskDollars,
-      settings.riskEquity,
       settings.riskMode,
-      settings.riskPercent,
       slNum,
       tpNum,
     ],
@@ -61,8 +138,23 @@ export function RiskCalculatorWidget() {
   };
 
   const handleApplyRTarget = (r: number) => {
-    if (entryNum === null || slNum === null) return;
-    const suggested = suggestTakeProfitForR(entryNum, slNum, r, activeSpec.decimals);
+    if (
+      entryNum === null ||
+      slNum === null ||
+      !Number.isFinite(entryNum) ||
+      !Number.isFinite(slNum) ||
+      entryNum <= 0 ||
+      slNum <= 0 ||
+      entryNum === slNum
+    ) {
+      return;
+    }
+    const precision = Math.max(
+      activeSpec.decimals,
+      countDecimals(entryText),
+      countDecimals(slText),
+    );
+    const suggested = suggestTakeProfitForR(entryNum, slNum, r, precision);
     if (suggested !== null) {
       setTpText(String(suggested));
     }
@@ -139,8 +231,8 @@ export function RiskCalculatorWidget() {
           onClick={() => setShowSpecEditor((v) => !v)}
           title="Customize broker contract / tick specification"
           className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-[10px] transition-colors ${showSpecEditor
-              ? 'border-blue-500 bg-blue-500/20 text-blue-300'
-              : 'border-slate-700 bg-slate-950 text-slate-300 hover:border-slate-600'
+            ? 'border-blue-500 bg-blue-500/20 text-blue-300'
+            : 'border-slate-700 bg-slate-950 text-slate-300 hover:border-slate-600'
             }`}
         >
           <SlidersHorizontal className="h-3 w-3" />
@@ -178,11 +270,19 @@ export function RiskCalculatorWidget() {
               <input
                 type="number"
                 step="any"
-                value={activeSpec.tickSize}
+                value={tickSizeText}
                 onChange={(e) => {
-                  const val = Number(e.target.value);
-                  if (Number.isFinite(val) && val > 0) {
+                  const raw = e.target.value;
+                  setTickSizeText(raw);
+                  const val = Number(raw);
+                  if (raw.trim() && Number.isFinite(val) && val > 0) {
                     handleUpdateActiveSpec({ tickSize: val });
+                  }
+                }}
+                onBlur={() => {
+                  const val = Number(tickSizeText);
+                  if (!tickSizeText.trim() || !Number.isFinite(val) || val <= 0) {
+                    setTickSizeText(String(activeSpec.tickSize));
                   }
                 }}
                 className="w-full rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 font-mono text-slate-100"
@@ -193,11 +293,19 @@ export function RiskCalculatorWidget() {
               <input
                 type="number"
                 step="any"
-                value={activeSpec.contractSize}
+                value={contractText}
                 onChange={(e) => {
-                  const val = Number(e.target.value);
-                  if (Number.isFinite(val) && val > 0) {
+                  const raw = e.target.value;
+                  setContractText(raw);
+                  const val = Number(raw);
+                  if (raw.trim() && Number.isFinite(val) && val > 0) {
                     handleUpdateActiveSpec({ contractSize: val });
+                  }
+                }}
+                onBlur={() => {
+                  const val = Number(contractText);
+                  if (!contractText.trim() || !Number.isFinite(val) || val <= 0) {
+                    setContractText(String(activeSpec.contractSize));
                   }
                 }}
                 className="w-full rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 font-mono text-slate-100"
@@ -208,11 +316,19 @@ export function RiskCalculatorWidget() {
               <input
                 type="number"
                 step="any"
-                value={activeSpec.tickValuePerLot}
+                value={tickValText}
                 onChange={(e) => {
-                  const val = Number(e.target.value);
-                  if (Number.isFinite(val) && val > 0) {
+                  const raw = e.target.value;
+                  setTickValText(raw);
+                  const val = Number(raw);
+                  if (raw.trim() && Number.isFinite(val) && val > 0) {
                     handleUpdateActiveSpec({ tickValuePerLot: val });
+                  }
+                }}
+                onBlur={() => {
+                  const val = Number(tickValText);
+                  if (!tickValText.trim() || !Number.isFinite(val) || val <= 0) {
+                    setTickValText(String(activeSpec.tickValuePerLot));
                   }
                 }}
                 className="w-full rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 font-mono text-slate-100"
@@ -229,13 +345,21 @@ export function RiskCalculatorWidget() {
                     <input
                       type="number"
                       step="0.1"
-                      value={settings.conversionRates.usdJpy}
+                      value={usdJpyText}
                       onChange={(e) => {
-                        const val = Number(e.target.value);
-                        if (Number.isFinite(val) && val > 0) {
+                        const raw = e.target.value;
+                        setUsdJpyText(raw);
+                        const val = Number(raw);
+                        if (raw.trim() && Number.isFinite(val) && val > 0) {
                           void updateSettings({
                             conversionRates: { ...settings.conversionRates, usdJpy: val },
                           });
+                        }
+                      }}
+                      onBlur={() => {
+                        const val = Number(usdJpyText);
+                        if (!usdJpyText.trim() || !Number.isFinite(val) || val <= 0) {
+                          setUsdJpyText(String(settings.conversionRates.usdJpy));
                         }
                       }}
                       className="w-full rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 font-mono text-slate-100"
@@ -248,13 +372,21 @@ export function RiskCalculatorWidget() {
                     <input
                       type="number"
                       step="0.001"
-                      value={settings.conversionRates.gbpUsd}
+                      value={gbpUsdText}
                       onChange={(e) => {
-                        const val = Number(e.target.value);
-                        if (Number.isFinite(val) && val > 0) {
+                        const raw = e.target.value;
+                        setGbpUsdText(raw);
+                        const val = Number(raw);
+                        if (raw.trim() && Number.isFinite(val) && val > 0) {
                           void updateSettings({
                             conversionRates: { ...settings.conversionRates, gbpUsd: val },
                           });
+                        }
+                      }}
+                      onBlur={() => {
+                        const val = Number(gbpUsdText);
+                        if (!gbpUsdText.trim() || !Number.isFinite(val) || val <= 0) {
+                          setGbpUsdText(String(settings.conversionRates.gbpUsd));
                         }
                       }}
                       className="w-full rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 font-mono text-slate-100"
@@ -292,11 +424,16 @@ export function RiskCalculatorWidget() {
           <input
             type="number"
             step="any"
-            value={settings.riskEquity}
+            value={equityText}
             onChange={(e) => {
-              const v = Number(e.target.value);
-              if (Number.isFinite(v) && v >= 0) void updateSettings({ riskEquity: v });
+              const raw = e.target.value;
+              setEquityText(raw);
+              const v = Number(raw);
+              if (raw.trim() && Number.isFinite(v) && v > 0) {
+                void updateSettings({ riskEquity: v });
+              }
             }}
+            placeholder="10000"
             className="w-full rounded border border-slate-800 bg-slate-950 px-2 py-1 font-mono text-xs text-slate-100"
           />
         </label>
@@ -321,11 +458,16 @@ export function RiskCalculatorWidget() {
               type="number"
               step="0.1"
               min="0"
-              value={settings.riskPercent}
+              value={riskPctText}
               onChange={(e) => {
-                const v = Number(e.target.value);
-                if (Number.isFinite(v) && v >= 0) void updateSettings({ riskPercent: v });
+                const raw = e.target.value;
+                setRiskPctText(raw);
+                const v = Number(raw);
+                if (raw.trim() && Number.isFinite(v) && v > 0) {
+                  void updateSettings({ riskPercent: v });
+                }
               }}
+              placeholder="1.0"
               className="w-full rounded border border-slate-800 bg-slate-950 px-2 py-1 font-mono text-xs text-slate-100"
             />
           ) : (
@@ -333,11 +475,16 @@ export function RiskCalculatorWidget() {
               type="number"
               step="any"
               min="0"
-              value={settings.riskDollars}
+              value={riskDollarText}
               onChange={(e) => {
-                const v = Number(e.target.value);
-                if (Number.isFinite(v) && v >= 0) void updateSettings({ riskDollars: v });
+                const raw = e.target.value;
+                setRiskDollarText(raw);
+                const v = Number(raw);
+                if (raw.trim() && Number.isFinite(v) && v > 0) {
+                  void updateSettings({ riskDollars: v });
+                }
               }}
+              placeholder="100"
               className="w-full rounded border border-slate-800 bg-slate-950 px-2 py-1 font-mono text-xs text-slate-100"
             />
           )}
@@ -351,10 +498,13 @@ export function RiskCalculatorWidget() {
             <button
               key={pct}
               type="button"
-              onClick={() => void updateSettings({ riskPercent: pct })}
-              className={`flex-1 rounded border py-0.5 font-mono text-[10px] transition-colors ${settings.riskPercent === pct
-                  ? 'border-blue-500 bg-blue-500/20 text-blue-300'
-                  : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:text-slate-200'
+              onClick={() => {
+                setRiskPctText(String(pct));
+                void updateSettings({ riskPercent: pct });
+              }}
+              className={`flex-1 rounded border py-0.5 font-mono text-[10px] transition-colors ${settings.riskPercent === pct && riskPctText.trim() !== ''
+                ? 'border-blue-500 bg-blue-500/20 text-blue-300'
+                : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:text-slate-200'
                 }`}
             >
               {pct}%
@@ -404,17 +554,34 @@ export function RiskCalculatorWidget() {
       <div className="flex items-center justify-between text-[10px]">
         <span className="text-slate-500">Quick TP Target:</span>
         <div className="flex gap-1">
-          {[2, 3, 5].map((r) => (
-            <button
-              key={r}
-              type="button"
-              onClick={() => handleApplyRTarget(r)}
-              disabled={entryNum === null || slNum === null}
-              className="rounded border border-slate-800 bg-slate-950 px-1.5 py-0.5 font-mono text-slate-300 hover:border-emerald-500/40 hover:text-emerald-300 disabled:opacity-40"
-            >
-              1:{r}
-            </button>
-          ))}
+          {[2, 3, 5].map((r) => {
+            const canApply =
+              entryNum !== null &&
+              slNum !== null &&
+              Number.isFinite(entryNum) &&
+              Number.isFinite(slNum) &&
+              entryNum > 0 &&
+              slNum > 0 &&
+              entryNum !== slNum;
+            const isActiveTarget =
+              result.valid &&
+              result.rMultiple !== null &&
+              Math.abs(result.rMultiple - r) < 0.01;
+            return (
+              <button
+                key={r}
+                type="button"
+                onClick={() => handleApplyRTarget(r)}
+                disabled={!canApply}
+                className={`rounded border px-1.5 py-0.5 font-mono transition-colors disabled:opacity-40 ${isActiveTarget
+                    ? 'border-emerald-500 bg-emerald-500/20 text-emerald-300'
+                    : 'border-slate-800 bg-slate-950 text-slate-300 hover:border-emerald-500/40 hover:text-emerald-300'
+                  }`}
+              >
+                1:{r}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -428,8 +595,8 @@ export function RiskCalculatorWidget() {
               </span>
               <span
                 className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${result.direction === 'long'
-                    ? 'bg-emerald-500/20 text-emerald-300'
-                    : 'bg-rose-500/20 text-rose-300'
+                  ? 'bg-emerald-500/20 text-emerald-300'
+                  : 'bg-rose-500/20 text-rose-300'
                   }`}
               >
                 {result.direction}
@@ -466,7 +633,7 @@ export function RiskCalculatorWidget() {
             <div>
               <div className="text-[9px] text-slate-500">SL Dist</div>
               <div className="text-slate-200">
-                {result.slTicks.toFixed(1)} {activeSpec.tickLabel}s
+                {result.slTicks.toFixed(1)} {formatTickPlural(activeSpec.tickLabel, result.slTicks)}
               </div>
             </div>
             <div>

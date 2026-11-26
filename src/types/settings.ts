@@ -103,6 +103,23 @@ export interface WidgetLayoutItem {
   isCollapsed: boolean;
   sortOrder: number;
   customHeight: number | null;
+  customWidth?: number | null;
+}
+
+export const MIN_WIDGET_HEIGHT = 120;
+export const MAX_WIDGET_HEIGHT = 1200;
+export const DEFAULT_WIDGET_WIDTH = 330;
+export const MIN_WIDGET_WIDTH = 240;
+export const MAX_WIDGET_WIDTH = 900;
+
+export function clampWidgetHeight(heightPx: number): number {
+  if (!Number.isFinite(heightPx)) return 260;
+  return Math.round(Math.min(MAX_WIDGET_HEIGHT, Math.max(MIN_WIDGET_HEIGHT, heightPx)));
+}
+
+export function clampWidgetWidth(widthPx: number): number {
+  if (!Number.isFinite(widthPx)) return DEFAULT_WIDGET_WIDTH;
+  return Math.round(Math.min(MAX_WIDGET_WIDTH, Math.max(MIN_WIDGET_WIDTH, widthPx)));
 }
 
 export const DEFAULT_WIDGET_LAYOUT: WidgetLayoutItem[] = WIDGET_CATALOG.map((w, idx) => ({
@@ -111,6 +128,7 @@ export const DEFAULT_WIDGET_LAYOUT: WidgetLayoutItem[] = WIDGET_CATALOG.map((w, 
   isCollapsed: false,
   sortOrder: idx,
   customHeight: null,
+  customWidth: null,
 }));
 
 export interface AppSettings {

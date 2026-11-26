@@ -73,6 +73,26 @@ describe('Milestone 2 Widgets', () => {
       fireEvent.click(r3Button);
     });
     expect(screen.getByText(/R:R 1 : 3\.00/)).toBeTruthy();
+
+    // Clearing Equity ($) must stay empty instead of snapping back to previous number
+    const equityInput = screen.getByLabelText(/Equity \(\$\)/i) as HTMLInputElement;
+    fireEvent.change(equityInput, { target: { value: '' } });
+    expect(equityInput.value).toBe('');
+    expect(screen.getByText(/Enter positive account equity/i)).toBeTruthy();
+    fireEvent.change(equityInput, { target: { value: '20000' } });
+    expect(equityInput.value).toBe('20000');
+
+    // Quick 1:2 R/R target must preserve exact 1:2 ratio even if fine decimals are entered on XAUUSD
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText('Instrument'), { target: { value: 'XAUUSD' } });
+    });
+    fireEvent.change(screen.getByLabelText(/^Entry$/i), { target: { value: '1.08500' } });
+    fireEvent.change(screen.getByLabelText(/^Stop Loss$/i), { target: { value: '1.08350' } });
+    await act(async () => {
+      fireEvent.click(screen.getByText('1:2'));
+    });
+    expect(screen.getByText(/R:R 1 : 2\.00/)).toBeTruthy();
+    expect(screen.queryByText(/tick \(\$0\.01\)s/i)).toBeNull();
   });
 
   it('allows removing pairs in DailyBiasWidget and custom symbols in RiskCalculatorWidget', async () => {

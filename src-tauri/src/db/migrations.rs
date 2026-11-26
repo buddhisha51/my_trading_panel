@@ -236,13 +236,22 @@ CREATE TABLE IF NOT EXISTS widget_layout (
     is_visible      INTEGER NOT NULL DEFAULT 1,
     is_collapsed    INTEGER NOT NULL DEFAULT 0,
     sort_order      INTEGER NOT NULL DEFAULT 0,
-    custom_height   INTEGER
+    custom_height   INTEGER,
+    custom_width    INTEGER
 );
 "#;
 
 pub async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     let mut tx = pool.begin().await?;
     sqlx::raw_sql(MIGRATION_001_SQL).execute(&mut *tx).await?;
+    let cols: Vec<(i64, String)> = sqlx::query_as("SELECT cid, name FROM pragma_table_info('widget_layout')")
+        .fetch_all(&mut *tx)
+        .await?;
+    if !cols.iter().any(|(_, name)| name == "custom_width") {
+        sqlx::query("ALTER TABLE widget_layout ADD COLUMN custom_width INTEGER")
+            .execute(&mut *tx)
+            .await?;
+    }
     sqlx::query("INSERT OR IGNORE INTO schema_migrations (version) VALUES (1)")
         .execute(&mut *tx)
         .await?;

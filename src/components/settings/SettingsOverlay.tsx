@@ -39,6 +39,7 @@ import {
 } from 'lucide-react';
 import { DateTime } from 'luxon';
 import { useEffect, useRef, useState } from 'react';
+import { usePreservedScroll } from '../../hooks/usePreservedScroll';
 import { tauriBridge } from '../../services/tauriBridge';
 import { useDailyBiasStore } from '../../stores/dailyBiasStore';
 import { useDockStore } from '../../stores/dockStore';
@@ -87,18 +88,33 @@ interface SortableWidgetManagerRowProps {
   item: WidgetLayoutItem;
   idx: number;
   total: number;
+  resizeAxis: 'vertical' | 'horizontal';
   onMove: (id: WidgetId, dir: 'up' | 'down') => void;
   onToggleVisibility: (id: WidgetId) => void;
+  onResizeDimension: (id: WidgetId, size: number | null) => void;
 }
 
 function SortableWidgetManagerRow({
   item,
   idx,
   total,
+  resizeAxis,
   onMove,
   onToggleVisibility,
+  onResizeDimension,
 }: SortableWidgetManagerRowProps) {
   const meta = WIDGET_CATALOG.find((w) => w.id === item.widgetId);
+  const currentValue =
+    resizeAxis === 'horizontal' ? (item.customWidth ?? null) : item.customHeight;
+  const dimensionLabel = resizeAxis === 'horizontal' ? 'width' : 'height';
+  const [sizeDraft, setSizeDraft] = useState(
+    currentValue !== null ? String(currentValue) : '',
+  );
+
+  useEffect(() => {
+    setSizeDraft(currentValue !== null ? String(currentValue) : '');
+  }, [currentValue]);
+
   const {
     attributes,
     listeners,
@@ -109,6 +125,20 @@ function SortableWidgetManagerRow({
   } = useSortable({ id: item.widgetId });
 
   if (!meta) return null;
+
+  const commitSizeDraft = () => {
+    const trimmed = sizeDraft.trim();
+    if (!trimmed) {
+      if (currentValue !== null) onResizeDimension(item.widgetId, null);
+      return;
+    }
+    const parsed = Number(trimmed);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      onResizeDimension(item.widgetId, parsed);
+    } else {
+      setSizeDraft(currentValue !== null ? String(currentValue) : '');
+    }
+  };
 
   return (
     <div
@@ -136,6 +166,38 @@ function SortableWidgetManagerRow({
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1">
+        <div className="mr-1 flex items-center gap-0.5 rounded border border-slate-800 bg-slate-950 px-1 py-0.5">
+          <input
+            type="text"
+            inputMode="numeric"
+            aria-label={`${meta.title} ${dimensionLabel} (px)`}
+            placeholder="Auto"
+            title={`Widget ${dimensionLabel} in px (leave blank for Auto)`}
+            value={sizeDraft}
+            onChange={(e) => setSizeDraft(e.target.value)}
+            onBlur={commitSizeDraft}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                commitSizeDraft();
+                (e.currentTarget as HTMLInputElement).blur();
+              }
+            }}
+            className="w-10 bg-transparent text-center font-mono text-[10px] text-slate-200 placeholder:text-slate-500 focus:outline-none"
+          />
+          {currentValue !== null ? (
+            <button
+              type="button"
+              onClick={() => onResizeDimension(item.widgetId, null)}
+              title={`Reset widget ${dimensionLabel} to Auto`}
+              aria-label={`Reset ${meta.title} ${dimensionLabel} to Auto`}
+              className="rounded px-0.5 font-mono text-[9px] text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+            >
+              ×
+            </button>
+          ) : (
+            <span className="font-mono text-[9px] text-slate-600">px</span>
+          )}
+        </div>
         <button
           type="button"
           disabled={idx === 0}
@@ -207,6 +269,7 @@ export function SettingsOverlay({ initialTab = 'dock' }: SettingsOverlayProps) {
     const [backupStatusMsg, setBackupStatusMsg] = useState<string | null>(null);
     const [backupErrorMsg, setBackupErrorMsg] = useState<string | null>(null);
     const backupInputRef = useRef<HTMLInputElement | null>(null);
+    const contentScrollRef = usePreservedScroll<HTMLDivElement>(`settings-overlay:${activeTab}`);
     const [now, setNow] = useState(() => DateTime.utc());
 
     useEffect(() => {
@@ -233,6 +296,8 @@ export function SettingsOverlay({ initialTab = 'dock' }: SettingsOverlayProps) {
     const finnhubKeyConfigured = useSettingsStore((s) => s.finnhubKeyConfigured);
     const updateSettings = useSettingsStore((s) => s.updateSettings);
     const toggleWidgetVisibility = useSettingsStore((s) => s.toggleWidgetVisibility);
+    const setWidgetHeight = useSettingsStore((s) => s.setWidgetHeight);
+    const setWidgetWidth = useSettingsStore((s) => s.setWidgetWidth);
     const moveWidget = useSettingsStore((s) => s.moveWidget);
     const reorderWidgets = useSettingsStore((s) => s.reorderWidgets);
     const saveFinnhubKey = useSettingsStore((s) => s.saveFinnhubKey);
@@ -341,7 +406,11 @@ export function SettingsOverlay({ initialTab = 'dock' }: SettingsOverlayProps) {
           </nav>
 
           {/* Content */}
-          <div className="flex-1 space-y-4 overflow-y-auto p-3 text-xs">
+          <div
+            key={activeTab}
+            ref={contentScrollRef}
+            className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3 text-xs"
+          >
             {activeTab === 'dock' && (
               <>
                 <section className="space-y-2">
@@ -1119,8 +1188,14 @@ export function SettingsOverlay({ initialTab = 'dock' }: SettingsOverlayProps) {
                             item={item}
                             idx={idx}
                             total={widgetLayout.length}
+                            resizeAxis={isHorizontalEdge(settings.edge) ? 'horizontal' : 'vertical'}
                             onMove={(id, dir) => void moveWidget(id, dir)}
                             onToggleVisibility={(id) => void toggleWidgetVisibility(id)}
+                            onResizeDimension={(id, size) =>
+                              void (isHorizontalEdge(settings.edge)
+                                ? setWidgetWidth(id, size)
+                                : setWidgetHeight(id, size))
+                            }
                           />
                         ))}
                       </div>

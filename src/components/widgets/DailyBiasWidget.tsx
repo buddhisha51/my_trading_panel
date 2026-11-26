@@ -6,6 +6,7 @@ import {
   Trash2,
   TrendingDown,
   TrendingUp,
+  X,
 } from 'lucide-react';
 import { DateTime } from 'luxon';
 import { useEffect, useState } from 'react';
@@ -153,6 +154,17 @@ export function DailyBiasWidget() {
     setAddingPair(false);
   };
 
+  const handleRemovePair = (pairToRemove: string) => {
+    if (watchlistPairs.length <= 1) return;
+    const nextList = watchlistPairs.filter((p) => p !== pairToRemove);
+    const nextSelected =
+      selectedPair === pairToRemove ? nextList[0] : selectedPair;
+    void updateSettings({
+      watchlistPairs: nextList,
+      selectedBiasPair: nextSelected,
+    });
+  };
+
   const tfRows: Array<{
     key: 'biasDaily' | 'bias4h' | 'bias15m';
     label: string;
@@ -221,20 +233,41 @@ export function DailyBiasWidget() {
 
       {/* Pair Pills */}
       <div className="flex flex-wrap items-center gap-1">
-        {watchlistPairs.map((pair) => (
-          <button
-            key={pair}
-            type="button"
-            onClick={() => void updateSettings({ selectedBiasPair: pair })}
-            className={`rounded border px-2 py-0.5 font-mono text-[10px] font-medium transition-colors ${
-              selectedPair === pair
-                ? 'border-blue-500 bg-blue-500/20 text-blue-300'
-                : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            {pair}
-          </button>
-        ))}
+        {watchlistPairs.map((pair) => {
+          const isSelected = selectedPair === pair;
+          return (
+            <div
+              key={pair}
+              className={`inline-flex items-center rounded border font-mono text-[10px] font-medium transition-colors ${
+                isSelected
+                  ? 'border-blue-500 bg-blue-500/20 text-blue-300'
+                  : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => void updateSettings({ selectedBiasPair: pair })}
+                className="px-2 py-0.5"
+              >
+                {pair}
+              </button>
+              {watchlistPairs.length > 1 && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleRemovePair(pair);
+                  }}
+                  aria-label={`Remove ${pair}`}
+                  title={`Remove ${pair} from watchlist`}
+                  className="mr-0.5 rounded p-0.5 text-slate-500 hover:bg-slate-800 hover:text-rose-400"
+                >
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              )}
+            </div>
+          );
+        })}
 
         {addingPair ? (
           <form

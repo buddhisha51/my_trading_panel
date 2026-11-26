@@ -104,17 +104,18 @@ pub async fn record_fetch_success(
     Ok(())
 }
 
-/// Exponential backoff on 429/5xx/network failure: min(2^failures * 60s, 3600s).
-pub async fn record_fetch_failure(
+/// Exponential backoff on 429/5xx/network failure: min(2^failures * 60s, max_backoff_secs).
+pub async fn record_fetch_failure_capped(
     pool: &SqlitePool,
     provider: &str,
     status: Option<i64>,
     prev_failures: i64,
+    max_backoff_secs: i64,
 ) -> Result<(), sqlx::Error> {
     let failures = (prev_failures + 1).min(10);
     let backoff_secs = (1i64 << (failures - 1).min(6))
         .saturating_mul(60)
-        .min(3600);
+        .min(max_backoff_secs.max(60));
     let now = Utc::now();
     let backoff_until = now + Duration::seconds(backoff_secs);
 
@@ -142,4 +143,14 @@ pub async fn record_fetch_failure(
     .await?;
 
     Ok(())
+}
+
+/// Exponential backoff on 429/5xx/network failure: min(2^failures * 60s, 3600s).
+pub async fn record_fetch_failure(
+    pool: &SqlitePool,
+    provider: &str,
+    status: Option<i64>,
+    prev_failures: i64,
+) -> Result<(), sqlx::Error> {
+    record_fetch_failure_capped(pool, provider, status, prev_failures, 3600).await
 }

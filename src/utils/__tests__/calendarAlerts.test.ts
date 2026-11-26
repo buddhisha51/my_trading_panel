@@ -85,5 +85,20 @@ describe('calendarAlerts', () => {
     const s = evaluateFeedResilience(staleMeta, null, true, now);
     expect(s.status).toBe('stale');
     expect(s.label).toContain('Offline cache');
+
+    const mixedMeta: FetchMetadataEntry[] = [
+      ...staleMeta,
+      {
+        provider: 'rss:rss_cointelegraph',
+        lastFetchedAt: '2026-07-15T12:10:00Z',
+        lastStatus: 200,
+        nextFetchAt: '2026-07-15T12:20:00Z',
+        consecutiveFailures: 0,
+        backoffUntil: null,
+      },
+    ];
+    const mixed = evaluateFeedResilience(mixedMeta, null, true, now);
+    expect(mixed.status).toBe('fresh');
+    expect(mixed.label).toBeNull();
   });
 });

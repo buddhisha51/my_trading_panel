@@ -43,8 +43,21 @@ export const useStrategiesStore = create<StrategiesState>()(
       });
       try {
         const list = await tauriBridge.listStrategies();
+        const attachmentEntries = await Promise.all(
+          list.map(async (st) => {
+            try {
+              const items = await tauriBridge.listAttachments('strategies', st.id);
+              return [st.id, items] as const;
+            } catch {
+              return [st.id, [] as AttachmentItem[]] as const;
+            }
+          }),
+        );
         set((s) => {
           s.strategies = list;
+          for (const [strategyId, items] of attachmentEntries) {
+            s.attachmentsByStrategyId[strategyId] = items;
+          }
           s.loading = false;
         });
       } catch {

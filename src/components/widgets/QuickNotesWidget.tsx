@@ -24,6 +24,7 @@ import {
   blobToImagePayload,
   launchWindowsScreenSnip,
 } from '../../utils/imageClipboard';
+import { CanvasMiniPreview } from '../canvas/CanvasMiniPreview';
 import { RichTextEditor } from '../editor/RichTextEditor';
 
 const DrawingCanvas = lazy(() =>
@@ -153,6 +154,8 @@ export function QuickNotesWidget() {
   const handleSaveCurrent = async (currentDraft: NoteDraft = draft!) => {
     if (!currentDraft) return;
     await saveNote(draftToPayload(currentDraft));
+    setDraft(null);
+    setShowCanvas(false);
   };
 
   const handleAttachBlob = async (blob: Blob, openCanvas = true): Promise<string | null> => {
@@ -476,80 +479,133 @@ export function QuickNotesWidget() {
         </div>
       ) : (
         <div className="space-y-1.5">
-          {notes.map((n) => (
-            <div
-              key={n.id}
-              onClick={() => handleOpenNote(n)}
-              className="group cursor-pointer rounded-md border border-slate-800 bg-slate-950/75 p-2 transition-colors hover:border-slate-700 hover:bg-slate-900"
-            >
-              <div className="flex items-start justify-between gap-1.5">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1">
-                    {n.isPinned && <Pin className="h-3 w-3 shrink-0 text-amber-400" />}
-                    <span className="truncate font-semibold text-slate-100">
-                      {n.title || 'Untitled Note'}
-                    </span>
+          {notes.map((n) => {
+            const parsedCanvas = n.canvasJson ? parseCanvasDocument(n.canvasJson) : null;
+            const hasCanvas = Boolean(
+              parsedCanvas &&
+                (parsedCanvas.shapes.length > 0 || parsedCanvas.backgroundAttachmentPath),
+            );
+            const noteAttachments = attachmentsByNoteId[n.id] ?? [];
+            const standaloneShots = hasCanvas && parsedCanvas?.backgroundAttachmentPath
+              ? noteAttachments.filter(
+                  (a) => a.relativePath !== parsedCanvas.backgroundAttachmentPath,
+                )
+              : noteAttachments;
+
+            return (
+              <div
+                key={n.id}
+                onClick={() => handleOpenNote(n)}
+                className="group cursor-pointer rounded-md border border-slate-800 bg-slate-950/75 p-2 transition-colors hover:border-slate-700 hover:bg-slate-900"
+              >
+                <div className="flex items-start justify-between gap-1.5">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1">
+                      {n.isPinned && <Pin className="h-3 w-3 shrink-0 text-amber-400" />}
+                      <span className="truncate font-semibold text-slate-100">
+                        {n.title || 'Untitled Note'}
+                      </span>
+                    </div>
+                    {n.bodyText && (
+                      <p className="mt-0.5 line-clamp-2 text-[10px] text-slate-400">
+                        {n.bodyText}
+                      </p>
+                    )}
                   </div>
-                  {n.bodyText && (
-                    <p className="mt-0.5 line-clamp-2 text-[10px] text-slate-400">
-                      {n.bodyText}
-                    </p>
+
+                  <div className="flex shrink-0 items-center gap-0.5 opacity-80">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void togglePinNote(n);
+                      }}
+                      title={n.isPinned ? 'Unpin' : 'Pin note'}
+                      className="rounded p-1 text-slate-500 hover:bg-slate-800 hover:text-amber-300"
+                    >
+                      <Pin className="h-3 w-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void deleteNote(n.id);
+                      }}
+                      title="Delete note"
+                      className="rounded p-1 text-slate-500 hover:bg-slate-800 hover:text-rose-400"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                </div>
+
+                {(hasCanvas || standaloneShots.length > 0) && (
+                  <div className="mt-1.5 flex items-center gap-1.5 overflow-x-auto pb-0.5">
+                    {hasCanvas && n.canvasJson && (
+                      <CanvasMiniPreview canvasJson={n.canvasJson} />
+                    )}
+                    {standaloneShots.slice(0, 3).map((att) => {
+                      const src = tauriBridge.resolveAttachmentSrc(att.relativePath);
+                      return (
+                        <div
+                          key={att.id}
+                          className="relative h-14 w-20 shrink-0 overflow-hidden rounded border border-slate-700/90 bg-slate-900"
+                        >
+                          {src ? (
+                            <img
+                              src={src}
+                              alt="Note screenshot"
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-full items-center justify-center text-[9px] text-slate-500">
+                              Img
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {standaloneShots.length > 3 && (
+                      <span className="shrink-0 rounded bg-slate-800 px-1.5 py-0.5 text-[9px] text-slate-300">
+                        +{standaloneShots.length - 3}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                <div className="mt-1.5 flex flex-wrap items-center gap-1 text-[9px]">
+                  {n.pair && (
+                    <span className="rounded bg-blue-500/15 px-1.5 py-0.5 font-mono text-blue-300">
+                      {n.pair}
+                    </span>
                   )}
-                </div>
-
-                <div className="flex shrink-0 items-center gap-0.5 opacity-80">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void togglePinNote(n);
-                    }}
-                    title={n.isPinned ? 'Unpin' : 'Pin note'}
-                    className="rounded p-1 text-slate-500 hover:bg-slate-800 hover:text-amber-300"
-                  >
-                    <Pin className="h-3 w-3" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void deleteNote(n.id);
-                    }}
-                    title="Delete note"
-                    className="rounded p-1 text-slate-500 hover:bg-slate-800 hover:text-rose-400"
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </button>
+                  {n.session && (
+                    <span className="rounded bg-slate-800 px-1.5 py-0.5 text-slate-300">
+                      {n.session}
+                    </span>
+                  )}
+                  {hasCanvas && (
+                    <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-emerald-300">
+                      Canvas
+                    </span>
+                  )}
+                  {noteAttachments.length > 0 && (
+                    <span className="rounded bg-sky-500/15 px-1.5 py-0.5 text-sky-300">
+                      {noteAttachments.length} {noteAttachments.length === 1 ? 'Screenshot' : 'Screenshots'}
+                    </span>
+                  )}
+                  {n.tags.slice(0, 3).map((tag) => (
+                    <span
+                      key={tag}
+                      className="rounded bg-slate-900 px-1.5 py-0.5 text-slate-400"
+                    >
+                      #{tag}
+                    </span>
+                  ))}
                 </div>
               </div>
-
-              <div className="mt-1.5 flex flex-wrap items-center gap-1 text-[9px]">
-                {n.pair && (
-                  <span className="rounded bg-blue-500/15 px-1.5 py-0.5 font-mono text-blue-300">
-                    {n.pair}
-                  </span>
-                )}
-                {n.session && (
-                  <span className="rounded bg-slate-800 px-1.5 py-0.5 text-slate-300">
-                    {n.session}
-                  </span>
-                )}
-                {n.canvasJson && (
-                  <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-emerald-300">
-                    Canvas
-                  </span>
-                )}
-                {n.tags.slice(0, 3).map((tag) => (
-                  <span
-                    key={tag}
-                    className="rounded bg-slate-900 px-1.5 py-0.5 text-slate-400"
-                  >
-                    #{tag}
-                  </span>
-                ))}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

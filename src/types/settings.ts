@@ -160,6 +160,7 @@ export interface AppSettings {
   ddMode: DrawdownMode;
 
   // Calendar & News Preferences
+  calendarFilterOptions: string[];
   calendarCurrencies: string[];
   calendarImpacts: EventImpact[];
   volatilityThresholdMin: number;
@@ -173,7 +174,7 @@ export interface AppSettings {
 export const DEFAULT_SETTINGS: AppSettings = {
   edge: 'left',
   monitorId: null,
-  collapsedThickness: 6,
+  collapsedThickness: 10,
   expandedSize: 380,
   hoverOpenDelayMs: 300,
   hoverCloseDelayMs: 500,
@@ -181,7 +182,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
   accentColor: '#3B82F6',
   stripColor: '#0F172A',
-  stripOpacity: 0.72,
+  stripOpacity: 0.92,
   panelOpacity: 0.96,
   statusIndicator: 'killzone',
 
@@ -210,6 +211,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   maxDdLimit: 10.0,
   ddMode: 'static',
 
+  calendarFilterOptions: ['USD', 'EUR', 'GBP', 'JPY', 'CAD', 'AUD', 'NZD', 'CHF'],
   calendarCurrencies: ['USD', 'EUR', 'GBP', 'JPY'],
   calendarImpacts: ['high', 'medium'],
   volatilityThresholdMin: 15,

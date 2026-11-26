@@ -31,7 +31,9 @@ describe('dockStore', () => {
   it('initializes dock bounds cleanly and switches edges', async () => {
     await useDockStore.getState().initializeDock();
     expect(useDockStore.getState().phase).toBe('collapsed');
-    expect(useDockStore.getState().geometry?.collapsed.width).toBe(6);
+    expect(useDockStore.getState().geometry?.collapsed.width).toBe(
+      DEFAULT_SETTINGS.collapsedThickness,
+    );
 
     await useDockStore.getState().dockToMonitorEdge(null, 'right');
     expect(useSettingsStore.getState().settings.edge).toBe('right');

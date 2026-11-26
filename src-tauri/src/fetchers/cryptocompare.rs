@@ -1,16 +1,17 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use reqwest::{header, Client, StatusCode};
 use serde::Deserialize;
 use sqlx::SqlitePool;
 
 use super::fetch_metadata::{
-    get_fetch_state, record_fetch_failure, record_fetch_success, should_fetch_now,
+    get_fetch_state, record_fetch_failure_capped, record_fetch_success, should_fetch_now,
 };
 use super::{extract_currencies_from_text, upsert_news_item_dedup};
 
 const PROVIDER_ID: &str = "cryptocompare";
 const CRYPTOCOMPARE_URL: &str = "https://min-api.cryptocompare.com/data/v2/news/?lang=EN";
-const CRYPTO_TTL_SECS: i64 = 600; // 10 min
+const CRYPTO_TTL_SECS: i64 = 900; // 15 min
+const CRYPTO_MAX_BACKOFF_SECS: i64 = 600; // 10 min max backoff
 
 #[derive(Debug, Deserialize)]
 struct CryptoCompareResponse {
@@ -44,7 +45,14 @@ pub async fn sync_news(
         .await
         .map_err(|e| e.to_string())?;
     let now = Utc::now();
-    if !should_fetch_now(&state, now, force_bypass_ttl) {
+    // Allow explicit manual refresh after a 60s cooldown even during backoff.
+    let manual_allowed = force_bypass_ttl
+        && state
+            .as_ref()
+            .and_then(|s| s.backoff_until)
+            .map(|b| now >= b - Duration::seconds(CRYPTO_MAX_BACKOFF_SECS - 60))
+            .unwrap_or(true);
+    if !manual_allowed && !should_fetch_now(&state, now, force_bypass_ttl) {
         return Ok(false);
     }
 
@@ -57,7 +65,14 @@ pub async fn sync_news(
     let resp = match req.send().await {
         Ok(r) => r,
         Err(_) => {
-            let _ = record_fetch_failure(pool, PROVIDER_ID, None, prev_failures).await;
+            let _ = record_fetch_failure_capped(
+                pool,
+                PROVIDER_ID,
+                None,
+                prev_failures,
+                CRYPTO_MAX_BACKOFF_SECS,
+            )
+            .await;
             return Ok(false);
         }
     };
@@ -68,11 +83,12 @@ pub async fn sync_news(
         return Ok(false);
     }
     if !status.is_success() {
-        let _ = record_fetch_failure(
+        let _ = record_fetch_failure_capped(
             pool,
             PROVIDER_ID,
             Some(status.as_u16() as i64),
             prev_failures,
+            CRYPTO_MAX_BACKOFF_SECS,
         )
         .await;
         return Ok(false);
@@ -87,7 +103,14 @@ pub async fn sync_news(
     let parsed: CryptoCompareResponse = match resp.json().await {
         Ok(p) => p,
         Err(_) => {
-            let _ = record_fetch_failure(pool, PROVIDER_ID, Some(200), prev_failures).await;
+            let _ = record_fetch_failure_capped(
+                pool,
+                PROVIDER_ID,
+                Some(200),
+                prev_failures,
+                CRYPTO_MAX_BACKOFF_SECS,
+            )
+            .await;
             return Ok(false);
         }
     };

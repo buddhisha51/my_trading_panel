@@ -191,13 +191,11 @@ const COMMON_TIMEZONES = [
   'UTC',
 ];
 
-export function SettingsOverlay() {
-  const [activeTab, setActiveTab] = useState<SettingsTab>('dock');
-  interface SettingsOverlayProps {
-    initialTab?: SettingsTab;
-  }
+interface SettingsOverlayProps {
+  initialTab?: SettingsTab;
+}
 
-  export function SettingsOverlay({ initialTab = 'dock' }: SettingsOverlayProps) {
+export function SettingsOverlay({ initialTab = 'dock' }: SettingsOverlayProps) {
     const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
     const [finnhubDraft, setFinnhubDraft] = useState('');
     const [secretStatusMsg, setSecretStatusMsg] = useState<string | null>(null);
@@ -316,8 +314,7 @@ export function SettingsOverlay() {
         </div>
 
         {/* Tabs */}
-        <nav className="grid shrink-0 grid-cols-5 border-b border-slate-800 bg-slate-900/70 text-[11px] font-medium">
-          <nav className="grid shrink-0 grid-cols-6 border-b border-slate-800 bg-slate-900/70 text-[10px] font-medium">
+        <nav className="grid shrink-0 grid-cols-6 border-b border-slate-800 bg-slate-900/70 text-[10px] font-medium">
             {(
               [
                 { id: 'dock', label: 'Dock', icon: Monitor },

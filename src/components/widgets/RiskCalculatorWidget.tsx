@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, Copy, Plus, SlidersHorizontal } from 'lucide-react';
+import { AlertTriangle, Check, Copy, Plus, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import type { InstrumentSpec } from '../../types/risk';
@@ -101,6 +101,15 @@ export function RiskCalculatorWidget() {
     setCustomSymbolDraft('');
   };
 
+  const handleRemoveActiveInstrument = () => {
+    if (specs.length <= 1 || activeSpec.instrumentClass !== 'custom') return;
+    const nextSpecs = specs.filter((s) => s.symbol !== activeSpec.symbol);
+    void updateSettings({
+      instrumentSpecs: nextSpecs,
+      selectedInstrument: nextSpecs[0].symbol,
+    });
+  };
+
   const handleCopyLots = () => {
     if (!result.valid) return;
     void navigator.clipboard?.writeText(result.roundedLotSize.toFixed(2));
@@ -129,11 +138,10 @@ export function RiskCalculatorWidget() {
           type="button"
           onClick={() => setShowSpecEditor((v) => !v)}
           title="Customize broker contract / tick specification"
-          className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-[10px] transition-colors ${
-            showSpecEditor
+          className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-[10px] transition-colors ${showSpecEditor
               ? 'border-blue-500 bg-blue-500/20 text-blue-300'
               : 'border-slate-700 bg-slate-950 text-slate-300 hover:border-slate-600'
-          }`}
+            }`}
         >
           <SlidersHorizontal className="h-3 w-3" />
           Spec
@@ -145,9 +153,23 @@ export function RiskCalculatorWidget() {
         <div className="space-y-2 rounded-md border border-blue-500/30 bg-slate-950/90 p-2 text-[10px]">
           <div className="flex items-center justify-between text-slate-300">
             <span className="font-semibold">{activeSpec.symbol} Contract Spec</span>
-            <span className="font-mono text-slate-500">
-              ${result.effectiveTickValuePerLot.toFixed(2)}/{activeSpec.tickLabel}/lot
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-slate-500">
+                ${result.effectiveTickValuePerLot.toFixed(2)}/{activeSpec.tickLabel}/lot
+              </span>
+              {activeSpec.instrumentClass === 'custom' && specs.length > 1 && (
+                <button
+                  type="button"
+                  onClick={handleRemoveActiveInstrument}
+                  aria-label={`Remove ${activeSpec.symbol}`}
+                  title={`Remove custom symbol ${activeSpec.symbol}`}
+                  className="inline-flex items-center gap-0.5 rounded border border-rose-500/30 bg-rose-500/10 px-1.5 py-0.5 text-[10px] text-rose-300 hover:bg-rose-500/20"
+                >
+                  <Trash2 className="h-2.5 w-2.5" />
+                  Remove
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-3 gap-1.5">
@@ -200,47 +222,47 @@ export function RiskCalculatorWidget() {
 
           {(activeSpec.conversionMode === 'inverse_usdjpy' ||
             activeSpec.conversionMode === 'multiply_gbpusd') && (
-            <div className="grid grid-cols-2 gap-1.5 pt-0.5">
-              {activeSpec.conversionMode === 'inverse_usdjpy' && (
-                <label className="space-y-0.5">
-                  <span className="text-slate-400">USDJPY Ref Rate</span>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={settings.conversionRates.usdJpy}
-                    onChange={(e) => {
-                      const val = Number(e.target.value);
-                      if (Number.isFinite(val) && val > 0) {
-                        void updateSettings({
-                          conversionRates: { ...settings.conversionRates, usdJpy: val },
-                        });
-                      }
-                    }}
-                    className="w-full rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 font-mono text-slate-100"
-                  />
-                </label>
-              )}
-              {activeSpec.conversionMode === 'multiply_gbpusd' && (
-                <label className="space-y-0.5">
-                  <span className="text-slate-400">GBPUSD Ref Rate</span>
-                  <input
-                    type="number"
-                    step="0.001"
-                    value={settings.conversionRates.gbpUsd}
-                    onChange={(e) => {
-                      const val = Number(e.target.value);
-                      if (Number.isFinite(val) && val > 0) {
-                        void updateSettings({
-                          conversionRates: { ...settings.conversionRates, gbpUsd: val },
-                        });
-                      }
-                    }}
-                    className="w-full rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 font-mono text-slate-100"
-                  />
-                </label>
-              )}
-            </div>
-          )}
+              <div className="grid grid-cols-2 gap-1.5 pt-0.5">
+                {activeSpec.conversionMode === 'inverse_usdjpy' && (
+                  <label className="space-y-0.5">
+                    <span className="text-slate-400">USDJPY Ref Rate</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={settings.conversionRates.usdJpy}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        if (Number.isFinite(val) && val > 0) {
+                          void updateSettings({
+                            conversionRates: { ...settings.conversionRates, usdJpy: val },
+                          });
+                        }
+                      }}
+                      className="w-full rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 font-mono text-slate-100"
+                    />
+                  </label>
+                )}
+                {activeSpec.conversionMode === 'multiply_gbpusd' && (
+                  <label className="space-y-0.5">
+                    <span className="text-slate-400">GBPUSD Ref Rate</span>
+                    <input
+                      type="number"
+                      step="0.001"
+                      value={settings.conversionRates.gbpUsd}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        if (Number.isFinite(val) && val > 0) {
+                          void updateSettings({
+                            conversionRates: { ...settings.conversionRates, gbpUsd: val },
+                          });
+                        }
+                      }}
+                      className="w-full rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 font-mono text-slate-100"
+                    />
+                  </label>
+                )}
+              </div>
+            )}
 
           {/* Add Custom Symbol */}
           <div className="flex gap-1 border-t border-slate-800 pt-1.5">
@@ -330,11 +352,10 @@ export function RiskCalculatorWidget() {
               key={pct}
               type="button"
               onClick={() => void updateSettings({ riskPercent: pct })}
-              className={`flex-1 rounded border py-0.5 font-mono text-[10px] transition-colors ${
-                settings.riskPercent === pct
+              className={`flex-1 rounded border py-0.5 font-mono text-[10px] transition-colors ${settings.riskPercent === pct
                   ? 'border-blue-500 bg-blue-500/20 text-blue-300'
                   : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:text-slate-200'
-              }`}
+                }`}
             >
               {pct}%
             </button>
@@ -406,11 +427,10 @@ export function RiskCalculatorWidget() {
                 {result.roundedLotSize.toFixed(2)} lots
               </span>
               <span
-                className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${
-                  result.direction === 'long'
+                className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${result.direction === 'long'
                     ? 'bg-emerald-500/20 text-emerald-300'
                     : 'bg-rose-500/20 text-rose-300'
-                }`}
+                  }`}
               >
                 {result.direction}
               </span>

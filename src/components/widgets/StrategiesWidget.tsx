@@ -1,9 +1,27 @@
 import {
+  closestCenter,
+  DndContext,
+  type DragEndEvent,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import {
   ArrowDown,
   ArrowLeft,
   ArrowUp,
   CheckSquare,
   Edit3,
+  GripVertical,
   Layers,
   Plus,
   RotateCcw,
@@ -12,6 +30,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { lazy, Suspense, useEffect, useState } from 'react';
+import { tauriBridge } from '../../services/tauriBridge';
 import { useStrategiesStore } from '../../stores/strategiesStore';
 import {
   EMPTY_TIPTAP_DOC,
@@ -22,6 +41,7 @@ import type { StrategyItem } from '../../types/notes';
 import { generateUlid } from '../../utils/id';
 import { blobToImagePayload } from '../../utils/imageClipboard';
 import { evaluateSetupChecklist, gradeColor } from '../../utils/strategyGrade';
+import { CanvasMiniPreview } from '../canvas/CanvasMiniPreview';
 import { RichTextEditor } from '../editor/RichTextEditor';
 
 const DrawingCanvas = lazy(() =>
@@ -33,6 +53,99 @@ interface EditableRule {
   name: string;
   description: string | null;
   isRequired: boolean;
+}
+
+interface SortableChecklistRuleRowProps {
+  rule: EditableRule;
+  idx: number;
+  total: number;
+  onToggleRequired: () => void;
+  onChangeName: (name: string) => void;
+  onMove: (dir: -1 | 1) => void;
+  onDelete: () => void;
+}
+
+function SortableChecklistRuleRow({
+  rule,
+  idx,
+  total,
+  onToggleRequired,
+  onChangeName,
+  onMove,
+  onDelete,
+}: SortableChecklistRuleRowProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: rule.id });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.55 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`flex items-center gap-1 rounded border border-slate-800/90 bg-slate-900/75 px-1.5 py-1 ${isDragging ? 'z-20 ring-1 ring-blue-500/60' : ''
+        }`}
+    >
+      <button
+        type="button"
+        {...attributes}
+        {...listeners}
+        title="Drag to reorder rule"
+        aria-label={`Drag ${rule.name || `Rule ${idx + 1}`}`}
+        className="cursor-grab rounded p-0.5 text-slate-500 hover:bg-slate-800 hover:text-slate-300 active:cursor-grabbing"
+      >
+        <GripVertical className="h-3 w-3" />
+      </button>
+      <button
+        type="button"
+        onClick={onToggleRequired}
+        title={rule.isRequired ? 'Required (click for optional)' : 'Optional (click for required)'}
+        className={`rounded p-0.5 ${rule.isRequired ? 'text-amber-400' : 'text-slate-600 hover:text-slate-400'
+          }`}
+      >
+        <Star className="h-3 w-3" fill={rule.isRequired ? 'currentColor' : 'none'} />
+      </button>
+      <input
+        type="text"
+        value={rule.name}
+        onChange={(e) => onChangeName(e.target.value)}
+        className="min-w-0 flex-1 bg-transparent text-[10px] text-slate-100 focus:outline-none"
+      />
+      <button
+        type="button"
+        disabled={idx === 0}
+        onClick={() => onMove(-1)}
+        className="rounded p-0.5 text-slate-500 hover:text-slate-200 disabled:opacity-25"
+      >
+        <ArrowUp className="h-3 w-3" />
+      </button>
+      <button
+        type="button"
+        disabled={idx === total - 1}
+        onClick={() => onMove(1)}
+        className="rounded p-0.5 text-slate-500 hover:text-slate-200 disabled:opacity-25"
+      >
+        <ArrowDown className="h-3 w-3" />
+      </button>
+      <button
+        type="button"
+        onClick={onDelete}
+        className="rounded p-0.5 text-slate-500 hover:text-rose-400"
+      >
+        <Trash2 className="h-3 w-3" />
+      </button>
+    </div>
+  );
 }
 
 interface StrategyDraft {
@@ -90,6 +203,7 @@ export function StrategiesWidget() {
   const loading = useStrategiesStore((s) => s.loading);
   const saving = useStrategiesStore((s) => s.saving);
   const checkedRuleIdsByStrategy = useStrategiesStore((s) => s.checkedRuleIdsByStrategy);
+  const attachmentsByStrategyId = useStrategiesStore((s) => s.attachmentsByStrategyId);
 
   const loadStrategies = useStrategiesStore((s) => s.loadStrategies);
   const saveStrategy = useStrategiesStore((s) => s.saveStrategy);
@@ -155,6 +269,7 @@ export function StrategiesWidget() {
     setSelectedStrategyId(saved.id);
     if (closeAfter) {
       setDraft(null);
+      setShowEditCanvas(false);
     }
   };
 
@@ -191,6 +306,11 @@ export function StrategiesWidget() {
     setNewRuleText('');
   };
 
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
   const moveRule = (idx: number, dir: -1 | 1) => {
     if (!draft) return;
     const target = idx + dir;
@@ -198,6 +318,19 @@ export function StrategiesWidget() {
     const copy = [...draft.checklist];
     [copy[idx], copy[target]] = [copy[target], copy[idx]];
     setDraft({ ...draft, checklist: copy });
+  };
+
+  const handleRuleDragEnd = (event: DragEndEvent) => {
+    if (!draft) return;
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = draft.checklist.findIndex((r) => r.id === active.id);
+    const newIndex = draft.checklist.findIndex((r) => r.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    setDraft({
+      ...draft,
+      checklist: arrayMove(draft.checklist, oldIndex, newIndex),
+    });
   };
 
   if (draft) {
@@ -218,8 +351,8 @@ export function StrategiesWidget() {
               type="button"
               onClick={() => setShowEditCanvas((v) => !v)}
               className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-[10px] font-medium ${showEditCanvas
-                  ? 'border-blue-500 bg-blue-500/20 text-blue-300'
-                  : 'border-slate-800 bg-slate-950 text-slate-300 hover:bg-slate-800'
+                ? 'border-blue-500 bg-blue-500/20 text-blue-300'
+                : 'border-slate-800 bg-slate-950 text-slate-300 hover:bg-slate-800'
                 }`}
             >
               <Layers className="h-3 w-3" />
@@ -228,7 +361,7 @@ export function StrategiesWidget() {
             <button
               type="button"
               disabled={saving}
-              onClick={() => void handleSaveDraft(false)}
+              onClick={() => void handleSaveDraft(true)}
               className="rounded bg-blue-600 px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-blue-500 disabled:opacity-50"
             >
               {saving ? 'Saving...' : 'Save'}
@@ -270,68 +403,46 @@ export function StrategiesWidget() {
             <span className="text-slate-500">★ = Required for A+</span>
           </div>
 
-          <div className="space-y-1">
-            {draft.checklist.map((rule, idx) => (
-              <div
-                key={rule.id}
-                className="flex items-center gap-1 rounded border border-slate-800/90 bg-slate-900/75 px-1.5 py-1"
-              >
-                <button
-                  type="button"
-                  onClick={() => {
-                    const next = draft.checklist.map((r) =>
-                      r.id === rule.id ? { ...r, isRequired: !r.isRequired } : r,
-                    );
-                    setDraft({ ...draft, checklist: next });
-                  }}
-                  title={rule.isRequired ? 'Required (click for optional)' : 'Optional (click for required)'}
-                  className={`rounded p-0.5 ${rule.isRequired ? 'text-amber-400' : 'text-slate-600 hover:text-slate-400'
-                    }`}
-                >
-                  <Star className="h-3 w-3" fill={rule.isRequired ? 'currentColor' : 'none'} />
-                </button>
-                <input
-                  type="text"
-                  value={rule.name}
-                  onChange={(e) => {
-                    const next = draft.checklist.map((r) =>
-                      r.id === rule.id ? { ...r, name: e.target.value } : r,
-                    );
-                    setDraft({ ...draft, checklist: next });
-                  }}
-                  className="min-w-0 flex-1 bg-transparent text-[10px] text-slate-100 focus:outline-none"
-                />
-                <button
-                  type="button"
-                  disabled={idx === 0}
-                  onClick={() => moveRule(idx, -1)}
-                  className="rounded p-0.5 text-slate-500 hover:text-slate-200 disabled:opacity-25"
-                >
-                  <ArrowUp className="h-3 w-3" />
-                </button>
-                <button
-                  type="button"
-                  disabled={idx === draft.checklist.length - 1}
-                  onClick={() => moveRule(idx, 1)}
-                  className="rounded p-0.5 text-slate-500 hover:text-slate-200 disabled:opacity-25"
-                >
-                  <ArrowDown className="h-3 w-3" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setDraft({
-                      ...draft,
-                      checklist: draft.checklist.filter((r) => r.id !== rule.id),
-                    })
-                  }
-                  className="rounded p-0.5 text-slate-500 hover:text-rose-400"
-                >
-                  <Trash2 className="h-3 w-3" />
-                </button>
+          <DndContext
+            sensors={dndSensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleRuleDragEnd}
+          >
+            <SortableContext
+              items={draft.checklist.map((r) => r.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              <div className="space-y-1">
+                {draft.checklist.map((rule, idx) => (
+                  <SortableChecklistRuleRow
+                    key={rule.id}
+                    rule={rule}
+                    idx={idx}
+                    total={draft.checklist.length}
+                    onToggleRequired={() => {
+                      const next = draft.checklist.map((r) =>
+                        r.id === rule.id ? { ...r, isRequired: !r.isRequired } : r,
+                      );
+                      setDraft({ ...draft, checklist: next });
+                    }}
+                    onChangeName={(name) => {
+                      const next = draft.checklist.map((r) =>
+                        r.id === rule.id ? { ...r, name } : r,
+                      );
+                      setDraft({ ...draft, checklist: next });
+                    }}
+                    onMove={(dir) => moveRule(idx, dir)}
+                    onDelete={() =>
+                      setDraft({
+                        ...draft,
+                        checklist: draft.checklist.filter((r) => r.id !== rule.id),
+                      })
+                    }
+                  />
+                ))}
               </div>
-            ))}
-          </div>
+            </SortableContext>
+          </DndContext>
 
           <div className="flex items-center gap-1 pt-0.5">
             <button
@@ -339,8 +450,8 @@ export function StrategiesWidget() {
               onClick={() => setNewRuleRequired((v) => !v)}
               title="Mark new rule as Required"
               className={`rounded border p-1 ${newRuleRequired
-                  ? 'border-amber-500/40 bg-amber-500/15 text-amber-400'
-                  : 'border-slate-800 bg-slate-900 text-slate-500'
+                ? 'border-amber-500/40 bg-amber-500/15 text-amber-400'
+                : 'border-slate-800 bg-slate-900 text-slate-500'
                 }`}
             >
               <Star className="h-3 w-3" fill={newRuleRequired ? 'currentColor' : 'none'} />
@@ -547,8 +658,8 @@ export function StrategiesWidget() {
                       type="button"
                       onClick={() => toggleChecklistExecution(activeStrategy.id, rule.id)}
                       className={`flex w-full items-center justify-between gap-2 rounded border px-2 py-1.5 text-left transition-colors ${checked
-                          ? 'border-emerald-500/40 bg-emerald-500/10 text-slate-100'
-                          : 'border-slate-800 bg-slate-900/60 text-slate-300 hover:border-slate-700'
+                        ? 'border-emerald-500/40 bg-emerald-500/10 text-slate-100'
+                        : 'border-slate-800 bg-slate-900/60 text-slate-300 hover:border-slate-700'
                         }`}
                     >
                       <div className="flex min-w-0 items-center gap-1.5">
@@ -570,8 +681,90 @@ export function StrategiesWidget() {
               </div>
             </div>
           )}
-        </div>
+
+          {/* Saved ICT Diagram & Screenshot Previews */}
+          {(() => {
+            const parsedCanvas = activeStrategy.canvasJson
+              ? parseCanvasDocument(activeStrategy.canvasJson)
+              : null;
+            const hasCanvas = Boolean(
+              parsedCanvas &&
+              (parsedCanvas.shapes.length > 0 || parsedCanvas.backgroundAttachmentPath),
+            );
+            const strategyShots = attachmentsByStrategyId[activeStrategy.id] ?? [];
+            const standaloneShots =
+              hasCanvas && parsedCanvas?.backgroundAttachmentPath
+                ? strategyShots.filter(
+                  (a) => a.relativePath !== parsedCanvas.backgroundAttachmentPath,
+                )
+                : strategyShots;
+
+            if (!hasCanvas && standaloneShots.length === 0) return null;
+
+            return (
+              <div
+                onClick={() => {
+                  const nextDraft = toStrategyDraft(activeStrategy);
+                  setDraft(nextDraft);
+                  setShowEditCanvas(true);
+                }}
+                title="Click to inspect or edit playbook diagram & screenshots"
+                className="cursor-pointer space-y-1.5 rounded-md border border-slate-800 bg-slate-950/75 p-2 transition-colors hover:border-slate-700"
+              >
+                <div className="flex items-center justify-between text-[10px] text-slate-400">
+                  <span className="font-medium text-slate-300">Playbook Visuals</span>
+                  <span>
+                    {[
+                      hasCanvas ? 'Diagram' : null,
+                      strategyShots.length > 0
+                        ? `${strategyShots.length} ${strategyShots.length === 1 ? 'Screenshot' : 'Screenshots'
+                        }`
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' • ')}
+                  </span>
+                </div>
+                  <div className="space-y-2">
+                    {hasCanvas && activeStrategy.canvasJson && (
+                    <CanvasMiniPreview canvasJson={activeStrategy.canvasJson} size="large" />
+                    )}
+                              {standaloneShots.length > 0 && (
+                                <div className="flex items-center gap-2 overflow-x-auto pb-0.5">
+                                  {standaloneShots.slice(0, 3).map((att) => {
+                                    const src = tauriBridge.resolveAttachmentSrc(att.relativePath);
+                                    return (
+                                      <div
+                                        key={att.id}
+                                        className="relative h-24 w-36 shrink-0 overflow-hidden rounded border border-slate-700/90 bg-slate-900"
+                                      >
+                                        {src ? (
+                                          <img
+                                            src={src}
+                                            alt="Strategy screenshot"
+                                            className="h-full w-full object-cover"
+                                          />
+                                        ) : (
+                                          <div className="flex h-full items-center justify-center text-[9px] text-slate-500">
+                                            Img
+                                          </div>
+                                        )}
+                                      </div>
+                              );
+                      })}
+                              {standaloneShots.length > 3 && (
+                                <span className="shrink-0 rounded bg-slate-800 px-1.5 py-0.5 text-[9px] text-slate-300">
+                                  +{standaloneShots.length - 3}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+              </div>
+                  );
+          })()}
+                </div>
       )}
-    </div>
-  );
-}
+              </div>
+            );
+          }

@@ -13,7 +13,7 @@ use tauri::{Emitter, Manager, WindowEvent};
 async fn load_initial_dock_prefs(pool: &SqlitePool) -> (DockEdge, Option<String>, u32, u32) {
     let mut edge = DockEdge::Left;
     let mut monitor_id: Option<String> = None;
-    let mut collapsed_thickness: u32 = 6;
+    let mut collapsed_thickness: u32 = 10;
     let mut expanded_size: u32 = 380;
 
     if let Ok(rows) = sqlx::query(
@@ -110,6 +110,10 @@ pub fn run() {
                     }
                 }
                 let _ = window.show();
+                #[cfg(target_os = "windows")]
+                if let Ok(hwnd) = window.hwnd() {
+                    win32_styles::enforce_topmost(hwnd.0 as isize);
+                }
             }
 
             Ok(())

@@ -54,8 +54,21 @@ export const useNotesStore = create<NotesState>()(
       try {
         const filters = get().filters;
         const rows = await tauriBridge.listNotes(filters);
+        const attachmentEntries = await Promise.all(
+          rows.map(async (row) => {
+            try {
+              const list = await tauriBridge.listAttachments('notes', row.id);
+              return [row.id, list] as const;
+            } catch {
+              return [row.id, [] as AttachmentItem[]] as const;
+            }
+          }),
+        );
         set((s) => {
           s.notes = rows;
+          for (const [noteId, list] of attachmentEntries) {
+            s.attachmentsByNoteId[noteId] = list;
+          }
           s.loading = false;
         });
       } catch {

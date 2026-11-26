@@ -74,4 +74,31 @@ describe('Milestone 2 Widgets', () => {
     });
     expect(screen.getByText(/R:R 1 : 3\.00/)).toBeTruthy();
   });
+
+  it('allows removing pairs in DailyBiasWidget and custom symbols in RiskCalculatorWidget', async () => {
+    render(<DailyBiasWidget />);
+    const removeUsdJpy = screen.getByRole('button', { name: 'Remove USDJPY' });
+    await act(async () => {
+      fireEvent.click(removeUsdJpy);
+    });
+    expect(useSettingsStore.getState().settings.watchlistPairs).not.toContain('USDJPY');
+
+    render(<RiskCalculatorWidget />);
+    await act(async () => {
+      fireEvent.click(screen.getByText('Spec'));
+    });
+    const customInput = screen.getByPlaceholderText(/Add custom symbol/i);
+    fireEvent.change(customInput, { target: { value: 'BTCUSD' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    });
+    expect(useSettingsStore.getState().settings.selectedInstrument).toBe('BTCUSD');
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Remove BTCUSD' }));
+    });
+    expect(useSettingsStore.getState().settings.instrumentSpecs.some((s) => s.symbol === 'BTCUSD')).toBe(
+      false,
+    );
+  });
 });

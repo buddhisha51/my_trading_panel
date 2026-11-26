@@ -34,12 +34,12 @@ interface EdgeStripProps {
 
     const borderStyle =
       edge === 'left'
-        ? { borderRight: `1px solid ${light.isActive ? light.color : accentColor}` }
+        ? { borderRight: `2px solid ${light.isActive ? light.color : accentColor}` }
         : edge === 'right'
-          ? { borderLeft: `1px solid ${light.isActive ? light.color : accentColor}` }
+          ? { borderLeft: `2px solid ${light.isActive ? light.color : accentColor}` }
           : edge === 'top'
-            ? { borderBottom: `1px solid ${light.isActive ? light.color : accentColor}` }
-            : { borderTop: `1px solid ${light.isActive ? light.color : accentColor}` };
+            ? { borderBottom: `2px solid ${light.isActive ? light.color : accentColor}` }
+            : { borderTop: `2px solid ${light.isActive ? light.color : accentColor}` };
 
     const ArrowIcon =
       edge === 'left'
@@ -74,15 +74,15 @@ interface EdgeStripProps {
           <span
             className="rounded-full shrink-0"
             style={{
-              width: horizontal ? 12 : 4,
-              height: horizontal ? 4 : 18,
+              width: horizontal ? 18 : 5,
+              height: horizontal ? 5 : 28,
               backgroundColor: light.color,
-              boxShadow: light.isActive ? `0 0 8px ${light.color}` : 'none',
+              boxShadow: `0 0 8px ${light.color}`,
             }}
           />
         )}
         <ArrowIcon
-          className="h-3 w-3 text-slate-300/70 opacity-0 transition-opacity group-hover:opacity-100"
+          className="h-3 w-3 text-slate-200 opacity-75 transition-opacity group-hover:opacity-100"
           strokeWidth={2.5}
         />
       </div>

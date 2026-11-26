@@ -98,6 +98,22 @@ export function evaluateFeedResilience(
       : { status: 'empty', label: 'No cached feed yet — syncing or offline' };
   }
 
+  // When aggregating multiple news adapters (providerFilter === null), do not show a
+  // scary rate-limit banner if other news feeds are healthy and serving headlines.
+  if (!providerFilter && hasCachedRows) {
+    const anyHealthy = relevant.some((m) => {
+      if (m.consecutiveFailures > 0) return false;
+      if (m.backoffUntil) {
+        const until = parseUtcIso(m.backoffUntil);
+        if (until.isValid && until.toMillis() > nowUtc.toMillis()) return false;
+      }
+      return true;
+    });
+    if (anyHealthy) {
+      return { status: 'fresh', label: null };
+    }
+  }
+
   for (const m of relevant) {
     if (m.backoffUntil) {
       const until = parseUtcIso(m.backoffUntil);
@@ -122,4 +138,44 @@ export function evaluateFeedResilience(
   }
 
   return { status: 'fresh', label: null };
+}
+
+const INDEX_CURRENCY_MAP: Record<string, string[]> = {
+  NAS100: ['USD'],
+  US100: ['USD'],
+  US30: ['USD'],
+  SPX500: ['USD'],
+  US500: ['USD'],
+  DXY: ['USD'],
+  GER40: ['EUR'],
+  DE40: ['EUR'],
+  DAX: ['EUR'],
+  UK100: ['GBP'],
+  JP225: ['JPY'],
+};
+
+/**
+ * Expands user calendar filter tokens (both 3-letter currencies like `USD` and trading
+ * pairs/indices like `EURUSD`, `GBPJPY`, `XAUUSD`, `NAS100`) into normalized currency codes.
+ */
+export function expandCalendarTokensToCurrencies(tokens: string[]): Set<string> {
+  const out = new Set<string>();
+  for (const raw of tokens) {
+    const clean = raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!clean) continue;
+
+    if (INDEX_CURRENCY_MAP[clean]) {
+      for (const cur of INDEX_CURRENCY_MAP[clean]) out.add(cur);
+      continue;
+    }
+
+    if (/^[A-Z]{6}$/.test(clean)) {
+      out.add(clean.slice(0, 3));
+      out.add(clean.slice(3, 6));
+      continue;
+    }
+
+    out.add(clean);
+  }
+  return out;
 }

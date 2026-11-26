@@ -55,3 +55,34 @@ textarea:focus-visible,
   outline: 2px solid var(--accent-primary);
   outline-offset: 2px;
 }
+
+/* Global +1.5px to +2px readability bump across panel typography */
+.text-\[9px\] {
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.text-\[10px\] {
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.text-\[11px\] {
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.text-xs {
+  font-size: 13.5px;
+  line-height: 1.4;
+}
+
+.text-sm {
+  font-size: 15.5px;
+  line-height: 1.45;
+}
+
+.text-base {
+  font-size: 17.5px;
+  line-height: 1.5;
+}

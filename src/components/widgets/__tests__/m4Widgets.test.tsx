@@ -130,6 +130,24 @@ describe('Milestone 4 Widgets', () => {
     await waitFor(() =>
       expect(screen.getByText(/High Volatility: US Core CPI \(USD\) in 10m/i)).toBeTruthy(),
     );
+
+    // Add a trading pair filter chip (EURUSD) and verify edit/remove controls exist
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Add calendar currency or pair' }));
+    });
+    const addInput = screen.getByLabelText('Add currency or pair');
+    fireEvent.change(addInput, { target: { value: 'EURUSD' } });
+    await act(async () => {
+      fireEvent.submit(addInput.closest('form')!);
+    });
+    expect(useSettingsStore.getState().settings.calendarFilterOptions).toContain('EURUSD');
+    expect(useSettingsStore.getState().settings.calendarCurrencies).toContain('EURUSD');
+
+    // Removing EURUSD cleans up both option and active filter
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Remove EURUSD' }));
+    });
+    expect(useSettingsStore.getState().settings.calendarFilterOptions).not.toContain('EURUSD');
   });
 
   it('filters NewsFeedWidget categories and opens articles in external browser', async () => {

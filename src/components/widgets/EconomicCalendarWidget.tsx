@@ -1,4 +1,4 @@
-import { AlertTriangle, CalendarPlus, RefreshCw, Trash2, X } from 'lucide-react';
+import { AlertTriangle, CalendarPlus, Check, Pencil, Plus, RefreshCw, Trash2, X } from 'lucide-react';
 import { DateTime } from 'luxon';
 import { useEffect, useMemo, useState } from 'react';
 import { useMarketStore } from '../../stores/marketStore';
@@ -9,6 +9,7 @@ import {
 } from '../../types/market';
 import {
   evaluateFeedResilience,
+  expandCalendarTokensToCurrencies,
   formatEventTimes,
   getNextHighImpactEvent,
   getUpcomingHighImpactAlerts,
@@ -40,13 +41,21 @@ export function EconomicCalendarWidget({ now }: EconomicCalendarWidgetProps) {
     DateTime.local().plus({ hours: 1 }).toFormat("yyyy-MM-dd'T'HH:mm"),
   );
   const [manualForecast, setManualForecast] = useState('');
+  const [addingFilter, setAddingFilter] = useState(false);
+  const [newFilterText, setNewFilterText] = useState('');
+  const [editingFilter, setEditingFilter] = useState<string | null>(null);
+  const [editFilterText, setEditFilterText] = useState('');
+
+  const filterOptions = settings.calendarFilterOptions?.length
+    ? settings.calendarFilterOptions
+    : [...SUPPORTED_CALENDAR_CURRENCIES];
 
   useEffect(() => {
     void loadMarketData();
   }, [loadMarketData]);
 
   const filteredEvents = useMemo(() => {
-    const curSet = new Set(settings.calendarCurrencies.map((c) => c.toUpperCase()));
+    const curSet = expandCalendarTokensToCurrencies(settings.calendarCurrencies);
     const impSet = new Set(settings.calendarImpacts);
     const nowMs = now.toMillis();
 
@@ -88,6 +97,52 @@ export function EconomicCalendarWidget({ now }: EconomicCalendarWidgetProps) {
       ? settings.calendarCurrencies.filter((c) => c !== cur)
       : [...settings.calendarCurrencies, cur];
     void updateSettings({ calendarCurrencies: next });
+  };
+
+  const handleAddFilterChip = () => {
+    const clean = newFilterText.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    setAddingFilter(false);
+    setNewFilterText('');
+    if (!clean) return;
+    const nextOptions = filterOptions.includes(clean)
+      ? filterOptions
+      : [...filterOptions, clean];
+    const nextActive = settings.calendarCurrencies.includes(clean)
+      ? settings.calendarCurrencies
+      : [...settings.calendarCurrencies, clean];
+    void updateSettings({
+      calendarFilterOptions: nextOptions,
+      calendarCurrencies: nextActive,
+    });
+  };
+
+  const handleSaveEditFilter = (oldChip: string) => {
+    const clean = editFilterText.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    setEditingFilter(null);
+    setEditFilterText('');
+    if (!clean || clean === oldChip) return;
+    const nextOptions = Array.from(
+      new Set(filterOptions.map((item) => (item === oldChip ? clean : item))),
+    );
+    const nextActive = Array.from(
+      new Set(
+        settings.calendarCurrencies.map((item) => (item === oldChip ? clean : item)),
+      ),
+    );
+    void updateSettings({
+      calendarFilterOptions: nextOptions,
+      calendarCurrencies: nextActive,
+    });
+  };
+
+  const handleRemoveFilterChip = (chip: string) => {
+    if (filterOptions.length <= 1) return;
+    const nextOptions = filterOptions.filter((item) => item !== chip);
+    const nextActive = settings.calendarCurrencies.filter((item) => item !== chip);
+    void updateSettings({
+      calendarFilterOptions: nextOptions,
+      calendarCurrencies: nextActive,
+    });
   };
 
   const toggleImpact = (imp: EventImpact) => {
@@ -232,26 +287,124 @@ export function EconomicCalendarWidget({ now }: EconomicCalendarWidgetProps) {
         </form>
       )}
 
-      {/* Currency & Impact Filter Chips */}
+      {/* Currency / Pair & Impact Filter Chips */}
       <div className="space-y-1">
-        <div className="flex flex-wrap gap-1">
-          {SUPPORTED_CALENDAR_CURRENCIES.map((c) => {
+        <div className="flex flex-wrap items-center gap-1">
+          {filterOptions.map((c) => {
             const active = settings.calendarCurrencies.includes(c);
+            const isEditing = editingFilter === c;
+            if (isEditing) {
+              return (
+                <form
+                  key={c}
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleSaveEditFilter(c);
+                  }}
+                  className="inline-flex items-center gap-0.5"
+                >
+                  <input
+                    autoFocus
+                    type="text"
+                    value={editFilterText}
+                    onChange={(e) => setEditFilterText(e.target.value)}
+                    onBlur={() => handleSaveEditFilter(c)}
+                    className="w-16 rounded border border-blue-500 bg-slate-950 px-1 py-0.5 font-mono text-[9px] uppercase text-slate-100"
+                    aria-label={`Edit filter ${c}`}
+                  />
+                  <button
+                    type="submit"
+                    className="rounded p-0.5 text-emerald-400 hover:bg-slate-800"
+                    title="Save"
+                  >
+                    <Check className="h-2.5 w-2.5" />
+                  </button>
+                </form>
+              );
+            }
+
             return (
-              <button
+              <div
                 key={c}
-                type="button"
-                onClick={() => toggleCurrency(c)}
-                className={`rounded border px-1.5 py-0.5 font-mono text-[9px] transition-colors ${
+                className={`inline-flex items-center rounded border font-mono text-[9px] transition-colors ${
                   active
                     ? 'border-blue-500/60 bg-blue-500/20 text-blue-300'
                     : 'border-slate-800 bg-slate-950/50 text-slate-500 hover:text-slate-300'
                 }`}
               >
-                {c}
-              </button>
+                <button
+                  type="button"
+                  onClick={() => toggleCurrency(c)}
+                  onDoubleClick={() => {
+                    setEditingFilter(c);
+                    setEditFilterText(c);
+                  }}
+                  title="Click to toggle filter • Double-click to edit"
+                  className="px-1.5 py-0.5"
+                >
+                  {c}
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEditingFilter(c);
+                    setEditFilterText(c);
+                  }}
+                  aria-label={`Edit ${c}`}
+                  title={`Edit ${c}`}
+                  className="rounded p-0.5 text-slate-500 hover:bg-slate-800 hover:text-slate-200"
+                >
+                  <Pencil className="h-2 w-2" />
+                </button>
+                {filterOptions.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRemoveFilterChip(c);
+                    }}
+                    aria-label={`Remove ${c}`}
+                    title={`Remove ${c}`}
+                    className="mr-0.5 rounded p-0.5 text-slate-500 hover:bg-slate-800 hover:text-rose-400"
+                  >
+                    <X className="h-2 w-2" />
+                  </button>
+                )}
+              </div>
             );
           })}
+
+          {addingFilter ? (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleAddFilterChip();
+              }}
+              className="inline-flex items-center gap-1"
+            >
+              <input
+                autoFocus
+                type="text"
+                value={newFilterText}
+                onChange={(e) => setNewFilterText(e.target.value)}
+                onBlur={handleAddFilterChip}
+                placeholder="EURUSD / CNY"
+                aria-label="Add currency or pair"
+                className="w-24 rounded border border-blue-500 bg-slate-950 px-1.5 py-0.5 font-mono text-[9px] uppercase text-slate-100 placeholder:normal-case"
+              />
+            </form>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setAddingFilter(true)}
+              title="Add currency or trading pair (e.g. EURUSD, XAUUSD, CNY)"
+              aria-label="Add calendar currency or pair"
+              className="rounded border border-dashed border-slate-700 px-1.5 py-0.5 text-slate-400 hover:border-slate-500 hover:text-slate-200"
+            >
+              <Plus className="h-2.5 w-2.5" />
+            </button>
+          )}
         </div>
 
         <div className="flex items-center justify-between gap-1 text-[9px]">

@@ -1,10 +1,15 @@
 import type {
   CandleShape,
   CanvasShape,
+  ChannelShape,
+  FibRetracementShape,
+  ImageShape,
   LiquidityLineShape,
   LiquidityTag,
   MssArrowShape,
   OteFibShape,
+  RectShape,
+  StraightLineShape,
   ZoneBoxShape,
 } from '../types/canvas';
 import { generateUlid } from './id';
@@ -141,18 +146,167 @@ export function buildMssArrowFromDrag(
   y1: number,
   x2: number,
   y2: number,
+  defaultColor = '#10B981',
 ): MssArrowShape {
-  const bullish = y2 < y1;
+  const isTap = Math.abs(x2 - x1) < 8 && Math.abs(y2 - y1) < 8;
+  const endX = isTap ? x1 + 60 : x2;
+  const endY = isTap ? y1 : y2;
+  const dy = endY - y1;
+  const color = Math.abs(dy) < 6 ? defaultColor : dy < 0 ? '#10B981' : '#EF4444';
+
   return {
     id: generateUlid(),
     type: 'mss_arrow',
     x1,
     y1,
-    x2,
-    y2: Math.abs(y2 - y1) < 8 && Math.abs(x2 - x1) < 8 ? y1 - 36 : y2,
+    x2: endX,
+    y2: endY,
     label,
-    color: bullish ? '#10B981' : '#EF4444',
+    color,
     strokeWidth: 2.5,
+  };
+}
+
+export interface FibLevelResult {
+  ratio: number;
+  label: string;
+  y: number;
+  isHighlight: boolean;
+}
+
+const FIB_RATIOS: ReadonlyArray<{ ratio: number; label: string; isHighlight: boolean }> = [
+  { ratio: 0, label: '0', isHighlight: false },
+  { ratio: 0.236, label: '0.236', isHighlight: false },
+  { ratio: 0.382, label: '0.382', isHighlight: false },
+  { ratio: 0.5, label: '0.5', isHighlight: true },
+  { ratio: 0.618, label: '0.618', isHighlight: true },
+  { ratio: 0.786, label: '0.786', isHighlight: true },
+  { ratio: 1, label: '1', isHighlight: false },
+];
+
+export function computeFibLevels(
+  startY: number,
+  endY: number,
+): {
+  levels: FibLevelResult[];
+  goldenTopY: number;
+  goldenBottomY: number;
+} {
+  const span = endY - startY;
+  const levels = FIB_RATIOS.map((r) => ({
+    ratio: r.ratio,
+    label: r.label,
+    y: startY + span * r.ratio,
+    isHighlight: r.isHighlight,
+  }));
+  const y618 = levels.find((l) => l.ratio === 0.618)!.y;
+  const y786 = levels.find((l) => l.ratio === 0.786)!.y;
+
+  return {
+    levels,
+    goldenTopY: Math.min(y618, y786),
+    goldenBottomY: Math.max(y618, y786),
+  };
+}
+
+export function buildRectFromDrag(
+  startX: number,
+  startY: number,
+  endX: number,
+  endY: number,
+  color = '#3B82F6',
+): RectShape {
+  const isTap = Math.abs(endX - startX) < 8 && Math.abs(endY - startY) < 8;
+  return {
+    id: generateUlid(),
+    type: 'rect',
+    x: isTap ? startX : Math.min(startX, endX),
+    y: isTap ? startY : Math.min(startY, endY),
+    width: isTap ? 84 : Math.max(18, Math.abs(endX - startX)),
+    height: isTap ? 44 : Math.max(12, Math.abs(endY - startY)),
+    fillOpacity: 0.16,
+    color,
+    strokeWidth: 1.5,
+  };
+}
+
+export function buildFibFromDrag(
+  startX: number,
+  startY: number,
+  endX: number,
+  endY: number,
+  color = '#F59E0B',
+  applyTapDefault = false,
+): FibRetracementShape {
+  const isTap = Math.abs(endX - startX) < 10 && Math.abs(endY - startY) < 10;
+  const x = Math.min(startX, endX);
+  const width = applyTapDefault && isTap ? 140 : Math.max(24, Math.abs(endX - startX));
+  const resolvedEndY = applyTapDefault && isTap ? startY + 110 : endY;
+
+  return {
+    id: generateUlid(),
+    type: 'fib_retracement',
+    x,
+    width,
+    startY,
+    endY: resolvedEndY,
+    color,
+    strokeWidth: 1.5,
+  };
+}
+
+export function buildStraightLine(
+  variant: 'horizontal' | 'vertical',
+  x: number,
+  y: number,
+  stageWidth: number,
+  stageHeight: number,
+  color = '#3B82F6',
+): StraightLineShape {
+  return variant === 'horizontal'
+    ? {
+        id: generateUlid(),
+        type: 'straight_line',
+        variant,
+        x1: 0,
+        y1: y,
+        x2: Math.max(120, stageWidth),
+        y2: y,
+        color,
+        strokeWidth: 2,
+      }
+    : {
+        id: generateUlid(),
+        type: 'straight_line',
+        variant,
+        x1: x,
+        y1: 0,
+        x2: x,
+        y2: Math.max(120, stageHeight),
+        color,
+        strokeWidth: 2,
+      };
+}
+
+export function buildChannelFromDrag(
+  startX: number,
+  startY: number,
+  endX: number,
+  endY: number,
+  color = '#3B82F6',
+): ChannelShape {
+  const isTap = Math.abs(endX - startX) < 12 && Math.abs(endY - startY) < 12;
+  return {
+    id: generateUlid(),
+    type: 'channel',
+    x1: startX,
+    y1: startY,
+    x2: isTap ? startX + 140 : endX,
+    y2: isTap ? startY - 24 : endY,
+    offsetY: 48,
+    fillOpacity: 0.14,
+    color,
+    strokeWidth: 1.5,
   };
 }
 
@@ -161,10 +315,12 @@ export function buildOteFibFromDrag(
   startY: number,
   endX: number,
   endY: number,
+  applyTapDefault = false,
 ): OteFibShape {
+  const isTap = Math.abs(endX - startX) < 10 && Math.abs(endY - startY) < 10;
   const x = Math.min(startX, endX);
-  const width = Math.max(90, Math.abs(endX - startX));
-  const minSpanY = Math.abs(endY - startY) < 20 ? startY + 100 : endY;
+  const width = applyTapDefault && isTap ? 140 : Math.max(24, Math.abs(endX - startX));
+  const resolvedEndY = applyTapDefault && isTap ? startY + 100 : endY;
 
   return {
     id: generateUlid(),
@@ -172,8 +328,47 @@ export function buildOteFibFromDrag(
     x,
     width,
     startY,
-    endY: minSpanY,
+    endY: resolvedEndY,
     color: '#F59E0B',
+    strokeWidth: 1.5,
+  };
+}
+
+export function fitImageRectToStage(
+  naturalWidth: number,
+  naturalHeight: number,
+  stageWidth: number,
+  stageHeight: number,
+  maxRatio = 0.78,
+): { x: number; y: number; width: number; height: number } {
+  const nw = Math.max(1, naturalWidth || 320);
+  const nh = Math.max(1, naturalHeight || 200);
+  const sw = Math.max(120, stageWidth || 560);
+  const sh = Math.max(120, stageHeight || 340);
+  const scale = Math.min((sw * maxRatio) / nw, (sh * maxRatio) / nh, 1);
+  const width = Math.max(48, Math.round(nw * scale));
+  const height = Math.max(36, Math.round(nh * scale));
+  return {
+    x: Math.round((sw - width) / 2),
+    y: Math.round((sh - height) / 2),
+    width,
+    height,
+  };
+}
+
+export function buildImageShape(
+  attachmentPath: string,
+  rect: { x: number; y: number; width: number; height: number },
+): ImageShape {
+  return {
+    id: generateUlid(),
+    type: 'image',
+    attachmentPath,
+    x: rect.x,
+    y: rect.y,
+    width: rect.width,
+    height: rect.height,
+    color: '#3B82F6',
     strokeWidth: 1.5,
   };
 }

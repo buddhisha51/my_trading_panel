@@ -1,6 +1,6 @@
 import { tauriBridge } from '../../services/tauriBridge';
 import { parseCanvasDocument } from '../../types/canvas';
-import { computeOteFibLevels } from '../../utils/canvasGeometry';
+import { computeFibLevels, computeOteFibLevels } from '../../utils/canvasGeometry';
 
 interface CanvasMiniPreviewProps {
   canvasJson: string;
@@ -30,20 +30,46 @@ interface CanvasMiniPreviewProps {
         className={`relative overflow-hidden border border-emerald-500/40 bg-slate-900 ${sizeClass}`}
         title={`ICT Canvas (${doc.shapes.length} shapes)`}
       >
-        {bgSrc && (
-          <img
-            src={bgSrc}
-            alt="Annotated chart canvas"
-            className="absolute inset-0 h-full w-full object-cover opacity-85"
-          />
-        )}
+        {bgSrc &&
+          (doc.backgroundRect ? null : (
+            <img
+              src={bgSrc}
+              alt="Annotated chart canvas"
+              className="absolute inset-0 h-full w-full object-cover opacity-85"
+            />
+          ))}
         <svg
           viewBox={`0 0 ${w} ${h}`}
           preserveAspectRatio="xMidYMid meet"
           className="relative h-full w-full"
         >
+          {bgSrc && doc.backgroundRect && (
+            <image
+              href={bgSrc}
+              x={doc.backgroundRect.x}
+              y={doc.backgroundRect.y}
+              width={doc.backgroundRect.width}
+              height={doc.backgroundRect.height}
+              preserveAspectRatio="none"
+            />
+          )}
           {doc.shapes.map((shape) => {
             switch (shape.type) {
+              case 'image': {
+                const imgSrc = tauriBridge.resolveAttachmentSrc(shape.attachmentPath);
+                if (!imgSrc) return null;
+                return (
+                  <image
+                    key={shape.id}
+                    href={imgSrc}
+                    x={shape.x}
+                    y={shape.y}
+                    width={shape.width}
+                    height={shape.height}
+                    preserveAspectRatio="none"
+                  />
+                );
+              }
               case 'candle': {
                 const cx = shape.x + shape.bodyWidth / 2;
                 return (
@@ -67,6 +93,20 @@ interface CanvasMiniPreviewProps {
                   </g>
                 );
               }
+              case 'rect':
+                return (
+                  <rect
+                    key={shape.id}
+                    x={shape.x}
+                    y={shape.y}
+                    width={shape.width}
+                    height={shape.height}
+                    fill={shape.color}
+                    fillOpacity={shape.fillOpacity || 0.16}
+                    stroke={shape.color}
+                    strokeWidth={Math.max(2, shape.strokeWidth)}
+                  />
+                );
               case 'zone_box':
                 return (
                   <rect
@@ -81,6 +121,55 @@ interface CanvasMiniPreviewProps {
                     strokeWidth={Math.max(2, shape.strokeWidth)}
                   />
                 );
+              case 'straight_line':
+                return (
+                  <line
+                    key={shape.id}
+                    x1={shape.x1}
+                    y1={shape.y1}
+                    x2={shape.x2}
+                    y2={shape.y2}
+                    stroke={shape.color}
+                    strokeWidth={Math.max(2.5, shape.strokeWidth)}
+                  />
+                );
+              case 'channel': {
+                const polyPts = `${shape.x1},${shape.y1} ${shape.x2},${shape.y2} ${shape.x2},${shape.y2 + shape.offsetY} ${shape.x1},${shape.y1 + shape.offsetY}`;
+                return (
+                  <g key={shape.id}>
+                    <polygon
+                      points={polyPts}
+                      fill={shape.color}
+                      fillOpacity={shape.fillOpacity || 0.14}
+                    />
+                    <line
+                      x1={shape.x1}
+                      y1={shape.y1}
+                      x2={shape.x2}
+                      y2={shape.y2}
+                      stroke={shape.color}
+                      strokeWidth={Math.max(2, shape.strokeWidth)}
+                    />
+                    <line
+                      x1={shape.x1}
+                      y1={shape.y1 + shape.offsetY}
+                      x2={shape.x2}
+                      y2={shape.y2 + shape.offsetY}
+                      stroke={shape.color}
+                      strokeWidth={Math.max(2, shape.strokeWidth)}
+                    />
+                    <line
+                      x1={shape.x1}
+                      y1={shape.y1 + shape.offsetY / 2}
+                      x2={shape.x2}
+                      y2={shape.y2 + shape.offsetY / 2}
+                      stroke={shape.color}
+                      strokeWidth={1.5}
+                      strokeDasharray="4 3"
+                    />
+                  </g>
+                );
+              }
               case 'liquidity_line':
                 return (
                   <line
@@ -96,16 +185,52 @@ interface CanvasMiniPreviewProps {
                 );
               case 'mss_arrow':
                 return (
-                  <line
-                    key={shape.id}
-                    x1={shape.x1}
-                    y1={shape.y1}
-                    x2={shape.x2}
-                    y2={shape.y2}
-                    stroke={shape.color}
-                    strokeWidth={Math.max(3, shape.strokeWidth)}
-                  />
+                  <g key={shape.id}>
+                    <line
+                      x1={shape.x1}
+                      y1={shape.y1}
+                      x2={shape.x2}
+                      y2={shape.y2}
+                      stroke={shape.color}
+                      strokeWidth={Math.max(3, shape.strokeWidth)}
+                    />
+                    <text
+                      x={shape.x2 >= shape.x1 ? shape.x2 + 4 : shape.x2 - 28}
+                      y={shape.y2 + 4}
+                      fill={shape.color}
+                      fontSize={12}
+                      fontWeight="bold"
+                    >
+                      {shape.label}
+                    </text>
+                  </g>
                 );
+              case 'fib_retracement': {
+                const fib = computeFibLevels(shape.startY, shape.endY);
+                return (
+                  <g key={shape.id}>
+                    <rect
+                      x={shape.x}
+                      y={fib.goldenTopY}
+                      width={shape.width}
+                      height={Math.max(4, fib.goldenBottomY - fib.goldenTopY)}
+                      fill={shape.color}
+                      fillOpacity={0.18}
+                    />
+                    {fib.levels.map((lvl) => (
+                      <line
+                        key={lvl.label}
+                        x1={shape.x}
+                        y1={lvl.y}
+                        x2={shape.x + shape.width}
+                        y2={lvl.y}
+                        stroke={shape.color}
+                        strokeWidth={lvl.isHighlight ? 2.5 : 1.5}
+                      />
+                    ))}
+                  </g>
+                );
+              }
               case 'ote_fib': {
                 const ote = computeOteFibLevels(shape.startY, shape.endY);
                 return (

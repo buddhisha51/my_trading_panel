@@ -1,15 +1,20 @@
 import type Konva from 'konva';
 import {
-  ArrowUpRight,
+  ArrowRight,
   CandlestickChart,
   Camera,
   ClipboardPaste,
   Eraser,
   Layers,
+  Minus,
   MousePointer,
+  MoveVertical,
   PenTool,
   Percent,
+  RectangleHorizontal,
   Redo2,
+  Rows3,
+  SlidersHorizontal,
   Square,
   Trash2,
   TrendingUp,
@@ -36,22 +41,34 @@ import type {
   CanvasDocument,
   CanvasShape,
   CanvasTool,
+  ChannelShape,
+  FibRetracementShape,
   FreehandShape,
+  ImageShape,
   LiquidityLineShape,
   LiquidityTag,
   MssArrowShape,
   OteFibShape,
+  RectShape,
+  StraightLineShape,
   TextNoteShape,
   ZoneBoxShape,
 } from '../../types/canvas';
 import {
   buildCandleFromDrag,
+  buildChannelFromDrag,
+  buildFibFromDrag,
+  buildImageShape,
   buildLiquidityLineFromDrag,
   buildMssArrowFromDrag,
   buildOteFibFromDrag,
+  buildRectFromDrag,
+  buildStraightLine,
   buildZoneBoxFromDrag,
+  computeFibLevels,
   computeOteFibLevels,
   createCanvasHistory,
+  fitImageRectToStage,
   pushCanvasHistory,
   redoCanvasHistory,
   undoCanvasHistory,
@@ -71,6 +88,112 @@ interface DrawingCanvasProps {
 }
 
 const PEN_COLORS = ['#3B82F6', '#10B981', '#EF4444', '#F59E0B', '#F8FAFC', '#A855F7'];
+const BG_NODE_ID = '__canvas_bg__';
+
+function readBlobImageDimensions(blob: Blob): Promise<{ width: number; height: number }> {
+  if (typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') {
+    return Promise.resolve({ width: 320, height: 200 });
+  }
+  return new Promise((resolve) => {
+    const objectUrl = URL.createObjectURL(blob);
+    const img = new window.Image();
+    let settled = false;
+    const finish = (w: number, h: number) => {
+      if (settled) return;
+      settled = true;
+      URL.revokeObjectURL(objectUrl);
+      resolve({ width: w > 0 ? w : 320, height: h > 0 ? h : 200 });
+    };
+    img.onload = () => finish(img.naturalWidth, img.naturalHeight);
+    img.onerror = () => finish(320, 200);
+    img.src = objectUrl;
+    window.setTimeout(() => finish(320, 200), 150);
+  });
+}
+
+function CanvasImageNode({
+  shape,
+  selectable,
+  selected,
+  onSelect,
+  onChangeRect,
+}: {
+  shape: ImageShape;
+  selectable: boolean;
+  selected: boolean;
+  onSelect: () => void;
+  onChangeRect: (rect: { x: number; y: number; width: number; height: number }) => void;
+}) {
+  const [img, setImg] = useState<HTMLImageElement | null>(null);
+  const src = tauriBridge.resolveAttachmentSrc(shape.attachmentPath);
+
+  useEffect(() => {
+    if (!src) {
+      setImg(null);
+      return;
+    }
+    let active = true;
+    const el = new window.Image();
+    el.crossOrigin = 'anonymous';
+    el.onload = () => {
+      if (active) setImg(el);
+    };
+    el.onerror = () => {
+      if (active) setImg(null);
+    };
+    el.src = src;
+    return () => {
+      active = false;
+    };
+  }, [src]);
+
+  return (
+    <Group
+      id={shape.id}
+      x={shape.x}
+      y={shape.y}
+      width={shape.width}
+      height={shape.height}
+      listening={selectable}
+      draggable={selectable}
+      onClick={() => selectable && onSelect()}
+      onTap={() => selectable && onSelect()}
+      onDragEnd={(ev) => {
+        onChangeRect({
+          x: ev.target.x(),
+          y: ev.target.y(),
+          width: shape.width,
+          height: shape.height,
+        });
+      }}
+      onTransformEnd={(ev) => {
+        const node = ev.target;
+        const scaleX = node.scaleX();
+        const scaleY = node.scaleY();
+        node.scaleX(1);
+        node.scaleY(1);
+        onChangeRect({
+          x: node.x(),
+          y: node.y(),
+          width: Math.max(32, shape.width * scaleX),
+          height: Math.max(24, shape.height * scaleY),
+        });
+      }}
+    >
+      {img ? (
+        <KonvaImage image={img} width={shape.width} height={shape.height} />
+      ) : (
+        <Rect
+          width={shape.width}
+          height={shape.height}
+          fill="#0F172A"
+          stroke={selected ? '#60A5FA' : '#334155'}
+          strokeWidth={1.5}
+        />
+      )}
+    </Group>
+  );
+}
 
 export function DrawingCanvas({
   document: canvasDoc,
@@ -89,6 +212,7 @@ export function DrawingCanvas({
   const [liquidityTag, setLiquidityTag] = useState<LiquidityTag>('BSL');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draftShape, setDraftShape] = useState<CanvasShape | null>(null);
+  const [liveShapeOverride, setLiveShapeOverride] = useState<CanvasShape | null>(null);
   const [textDraft, setTextDraft] = useState<{
     id: string | null;
     x: number;
@@ -100,12 +224,7 @@ export function DrawingCanvas({
 
   const [history, setHistory] = useState(() => createCanvasHistory(canvasDoc.shapes));
   const dragOriginRef = useRef<{ x: number; y: number } | null>(null);
-
-  // Sync undo/redo stack if external canvasDoc resets
-  useEffect(() => {
-    setHistory(createCanvasHistory(canvasDoc.shapes));
-    setSelectedId(null);
-  }, [canvasDoc.backgroundAttachmentPath, canvasDoc.width, canvasDoc.height]);
+  const dragLastPosRef = useRef<{ x: number; y: number } | null>(null);
 
   // Measure container width cleanly
   useEffect(() => {
@@ -168,9 +287,25 @@ export function DrawingCanvas({
       return;
     }
 
+    if (selectedId === BG_NODE_ID) {
+      const bgNode = layer.findOne(`#${BG_NODE_ID}`);
+      tr.nodes(bgNode ? [bgNode] : []);
+      tr.getLayer()?.batchDraw();
+      return;
+    }
+
     const shapeObj = history.present.find((s) => s.id === selectedId);
-    // Candlesticks have dedicated wick handles; Zone/Text/Freehand use Konva Transformer
-    if (!shapeObj || shapeObj.type === 'candle' || shapeObj.type === 'liquidity_line' || shapeObj.type === 'mss_arrow' || shapeObj.type === 'ote_fib') {
+    // Candlesticks, lines, channels & fibs have dedicated handles; Rect/Image/Zone/Text/Freehand use Konva Transformer
+    if (
+      !shapeObj ||
+      shapeObj.type === 'candle' ||
+      shapeObj.type === 'liquidity_line' ||
+      shapeObj.type === 'straight_line' ||
+      shapeObj.type === 'channel' ||
+      shapeObj.type === 'mss_arrow' ||
+      shapeObj.type === 'fib_retracement' ||
+      shapeObj.type === 'ote_fib'
+    ) {
       tr.nodes([]);
       tr.getLayer()?.batchDraw();
       return;
@@ -179,7 +314,7 @@ export function DrawingCanvas({
     const node = layer.findOne(`#${selectedId}`);
     tr.nodes(node ? [node] : []);
     tr.getLayer()?.batchDraw();
-  }, [history.present, selectedId, tool]);
+  }, [canvasDoc.backgroundAttachmentPath, canvasDoc.backgroundRect, history.present, selectedId, tool]);
 
   const handleUndo = useCallback(() => {
     setHistory((prev) => {
@@ -199,26 +334,42 @@ export function DrawingCanvas({
 
   const handleDeleteSelected = useCallback(() => {
     if (!selectedId) return;
+    if (selectedId === BG_NODE_ID) {
+      setSelectedId(null);
+      onChange({
+        ...canvasDoc,
+        backgroundAttachmentPath: null,
+        backgroundRect: null,
+        shapes: history.present,
+      });
+      return;
+    }
     const next = history.present.filter((s) => s.id !== selectedId);
     setSelectedId(null);
     commitShapes(next);
-  }, [commitShapes, history.present, selectedId]);
+  }, [canvasDoc, commitShapes, history.present, onChange, selectedId]);
 
   const attachScreenshotBlob = useCallback(
     async (blob: Blob) => {
-      const relPath = await onSaveScreenshotFile(blob);
+      const [relPath, dims] = await Promise.all([
+        onSaveScreenshotFile(blob),
+        readBlobImageDimensions(blob),
+      ]);
       if (relPath) {
         setSnipPending(false);
-        onChange({
-          ...canvasDoc,
-          width: stageSize.width,
-          height: stageSize.height,
-          backgroundAttachmentPath: relPath,
-          shapes: history.present,
-        });
+        const rect = fitImageRectToStage(
+          dims.width,
+          dims.height,
+          stageSize.width,
+          stageSize.height,
+        );
+        const imgShape = buildImageShape(relPath, rect);
+        commitShapes([...history.present, imgShape]);
+        setTool('select');
+        setSelectedId(imgShape.id);
       }
     },
-    [canvasDoc, history.present, onChange, onSaveScreenshotFile, stageSize.height, stageSize.width],
+    [commitShapes, history.present, onSaveScreenshotFile, stageSize.height, stageSize.width],
   );
 
   const handleClipboardButton = useCallback(async () => {
@@ -264,6 +415,7 @@ export function DrawingCanvas({
   }, [attachScreenshotBlob, handleDeleteSelected, handleRedo, handleUndo, selectedId, textDraft]);
 
   const bgDrawRect = useMemo(() => {
+    if (canvasDoc.backgroundRect) return canvasDoc.backgroundRect;
     if (!bgImage) return null;
     const scale = Math.min(
       stageSize.width / Math.max(1, bgImage.naturalWidth || stageSize.width),
@@ -277,7 +429,7 @@ export function DrawingCanvas({
       width: drawW,
       height: drawH,
     };
-  }, [bgImage, stageSize.height, stageSize.width]);
+  }, [bgImage, canvasDoc.backgroundRect, stageSize.height, stageSize.width]);
 
   const handleMouseDown = (e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
     const stage = e.target.getStage();
@@ -297,6 +449,7 @@ export function DrawingCanvas({
     }
 
     dragOriginRef.current = { x: pos.x, y: pos.y };
+    dragLastPosRef.current = { x: pos.x, y: pos.y };
 
     if (tool === 'pen') {
       const freehand: FreehandShape = {
@@ -309,6 +462,8 @@ export function DrawingCanvas({
       setDraftShape(freehand);
     } else if (tool === 'candle') {
       setDraftShape(buildCandleFromDrag(pos.x, pos.y, pos.y - 20));
+    } else if (tool === 'rect') {
+      setDraftShape(buildRectFromDrag(pos.x, pos.y, pos.x, pos.y, penColor));
     } else if (tool === 'fvg' || tool === 'ifvg' || tool === 'order_block' || tool === 'breaker') {
       const kind =
         tool === 'fvg'
@@ -321,12 +476,27 @@ export function DrawingCanvas({
       setDraftShape(buildZoneBoxFromDrag(kind, pos.x, pos.y, pos.x + 2, pos.y + 2));
     } else if (tool === 'liquidity') {
       setDraftShape(buildLiquidityLineFromDrag(liquidityTag, pos.x, pos.y, pos.x + 2, pos.y));
+    } else if (tool === 'hline' || tool === 'vline') {
+      setDraftShape(
+        buildStraightLine(
+          tool === 'hline' ? 'horizontal' : 'vertical',
+          pos.x,
+          pos.y,
+          stageSize.width,
+          stageSize.height,
+          penColor,
+        ),
+      );
+    } else if (tool === 'channel') {
+      setDraftShape(buildChannelFromDrag(pos.x, pos.y, pos.x, pos.y, penColor));
     } else if (tool === 'mss' || tool === 'cisd') {
       setDraftShape(
-        buildMssArrowFromDrag(tool === 'mss' ? 'MSS' : 'CISD', pos.x, pos.y, pos.x, pos.y - 20),
+        buildMssArrowFromDrag(tool === 'mss' ? 'MSS' : 'CISD', pos.x, pos.y, pos.x, pos.y, penColor),
       );
+    } else if (tool === 'fib') {
+      setDraftShape(buildFibFromDrag(pos.x, pos.y, pos.x, pos.y, penColor, false));
     } else if (tool === 'ote_fib') {
-      setDraftShape(buildOteFibFromDrag(pos.x, pos.y, pos.x + 120, pos.y + 80));
+      setDraftShape(buildOteFibFromDrag(pos.x, pos.y, pos.x, pos.y, false));
     }
   };
 
@@ -335,12 +505,18 @@ export function DrawingCanvas({
     if (!origin || !draftShape) return;
     const pos = e.target.getStage()?.getPointerPosition();
     if (!pos) return;
+    dragLastPosRef.current = { x: pos.x, y: pos.y };
 
     if (draftShape.type === 'freehand') {
       setDraftShape({ ...draftShape, points: [...draftShape.points, pos.x, pos.y] });
     } else if (draftShape.type === 'candle') {
       setDraftShape({
         ...buildCandleFromDrag(origin.x, origin.y, pos.y),
+        id: draftShape.id,
+      });
+    } else if (draftShape.type === 'rect') {
+      setDraftShape({
+        ...buildRectFromDrag(origin.x, origin.y, pos.x, pos.y, draftShape.color),
         id: draftShape.id,
       });
     } else if (draftShape.type === 'zone_box') {
@@ -353,14 +529,36 @@ export function DrawingCanvas({
         ...buildLiquidityLineFromDrag(liquidityTag, origin.x, origin.y, pos.x, pos.y),
         id: draftShape.id,
       });
+    } else if (draftShape.type === 'straight_line') {
+      setDraftShape({
+        ...buildStraightLine(
+          draftShape.variant,
+          pos.x,
+          pos.y,
+          stageSize.width,
+          stageSize.height,
+          draftShape.color,
+        ),
+        id: draftShape.id,
+      });
+    } else if (draftShape.type === 'channel') {
+      setDraftShape({
+        ...buildChannelFromDrag(origin.x, origin.y, pos.x, pos.y, draftShape.color),
+        id: draftShape.id,
+      });
     } else if (draftShape.type === 'mss_arrow') {
       setDraftShape({
-        ...buildMssArrowFromDrag(draftShape.label, origin.x, origin.y, pos.x, pos.y),
+        ...buildMssArrowFromDrag(draftShape.label, origin.x, origin.y, pos.x, pos.y, penColor),
+        id: draftShape.id,
+      });
+    } else if (draftShape.type === 'fib_retracement') {
+      setDraftShape({
+        ...buildFibFromDrag(origin.x, origin.y, pos.x, pos.y, draftShape.color, false),
         id: draftShape.id,
       });
     } else if (draftShape.type === 'ote_fib') {
       setDraftShape({
-        ...buildOteFibFromDrag(origin.x, origin.y, pos.x, pos.y),
+        ...buildOteFibFromDrag(origin.x, origin.y, pos.x, pos.y, false),
         id: draftShape.id,
       });
     }
@@ -368,9 +566,28 @@ export function DrawingCanvas({
 
   const handleMouseUp = () => {
     if (!draftShape) return;
+    const origin = dragOriginRef.current;
+    const lastPos = dragLastPosRef.current ?? origin;
     dragOriginRef.current = null;
-    commitShapes([...history.present, draftShape]);
-    setSelectedId(draftShape.id);
+    dragLastPosRef.current = null;
+
+    let finalShape = draftShape;
+    if (origin && lastPos) {
+      if (draftShape.type === 'ote_fib') {
+        finalShape = {
+          ...buildOteFibFromDrag(origin.x, origin.y, lastPos.x, lastPos.y, true),
+          id: draftShape.id,
+        };
+      } else if (draftShape.type === 'fib_retracement') {
+        finalShape = {
+          ...buildFibFromDrag(origin.x, origin.y, lastPos.x, lastPos.y, draftShape.color, true),
+          id: draftShape.id,
+        };
+      }
+    }
+
+    commitShapes([...history.present, finalShape]);
+    setSelectedId(finalShape.id);
     setDraftShape(null);
   };
 
@@ -536,6 +753,219 @@ export function DrawingCanvas({
       );
     }
 
+    if (s.type === 'image') {
+      const im = s as ImageShape;
+      return (
+        <CanvasImageNode
+          key={im.id}
+          shape={im}
+          selectable={selectable}
+          selected={selected}
+          onSelect={() => setSelectedId(im.id)}
+          onChangeRect={(rect) => {
+            updateShapeById(im.id, (prev) =>
+              prev.type === 'image' ? { ...prev, ...rect } : prev,
+            );
+          }}
+        />
+      );
+    }
+
+    if (s.type === 'rect') {
+      const r = s as RectShape;
+      return (
+        <Group
+          key={r.id}
+          id={r.id}
+          x={r.x}
+          y={r.y}
+          width={r.width}
+          height={r.height}
+          draggable={selectable}
+          onClick={() => selectable && setSelectedId(r.id)}
+          onTap={() => selectable && setSelectedId(r.id)}
+          onDragEnd={(ev) => {
+            updateShapeById(r.id, (prev) =>
+              prev.type === 'rect' ? { ...prev, x: ev.target.x(), y: ev.target.y() } : prev,
+            );
+          }}
+          onTransformEnd={(ev) => {
+            const node = ev.target;
+            const scaleX = node.scaleX();
+            const scaleY = node.scaleY();
+            node.scaleX(1);
+            node.scaleY(1);
+            updateShapeById(r.id, (prev) =>
+              prev.type === 'rect'
+                ? {
+                    ...prev,
+                    x: node.x(),
+                    y: node.y(),
+                    width: Math.max(18, prev.width * scaleX),
+                    height: Math.max(12, prev.height * scaleY),
+                  }
+                : prev,
+            );
+          }}
+        >
+          <Rect
+            width={r.width}
+            height={r.height}
+            fill={r.color}
+            opacity={r.fillOpacity}
+            stroke={r.color}
+            strokeWidth={selected ? r.strokeWidth + 1 : r.strokeWidth}
+          />
+        </Group>
+      );
+    }
+
+    if (s.type === 'straight_line') {
+      const sl = s as StraightLineShape;
+      return (
+        <Group
+          key={sl.id}
+          id={sl.id}
+          draggable={selectable}
+          onClick={() => selectable && setSelectedId(sl.id)}
+          onTap={() => selectable && setSelectedId(sl.id)}
+          onDragEnd={(ev) => {
+            const dx = sl.variant === 'vertical' ? ev.target.x() : 0;
+            const dy = sl.variant === 'horizontal' ? ev.target.y() : 0;
+            ev.target.position({ x: 0, y: 0 });
+            updateShapeById(sl.id, (prev) =>
+              prev.type === 'straight_line'
+                ? {
+                    ...prev,
+                    x1: prev.x1 + dx,
+                    y1: prev.y1 + dy,
+                    x2: prev.x2 + dx,
+                    y2: prev.y2 + dy,
+                  }
+                : prev,
+            );
+          }}
+        >
+          <Line
+            points={[sl.x1, sl.y1, sl.x2, sl.y2]}
+            stroke={sl.color}
+            strokeWidth={selected ? sl.strokeWidth + 1.5 : sl.strokeWidth}
+            hitStrokeWidth={12}
+          />
+        </Group>
+      );
+    }
+
+    if (s.type === 'channel') {
+      const ch = s as ChannelShape;
+      const midX = (ch.x1 + ch.x2) / 2;
+      const midY = (ch.y1 + ch.y2) / 2;
+      return (
+        <Group
+          key={ch.id}
+          id={ch.id}
+          draggable={selectable}
+          onClick={() => selectable && setSelectedId(ch.id)}
+          onTap={() => selectable && setSelectedId(ch.id)}
+          onDragEnd={(ev) => {
+            const dx = ev.target.x();
+            const dy = ev.target.y();
+            ev.target.position({ x: 0, y: 0 });
+            updateShapeById(ch.id, (prev) =>
+              prev.type === 'channel'
+                ? {
+                    ...prev,
+                    x1: prev.x1 + dx,
+                    y1: prev.y1 + dy,
+                    x2: prev.x2 + dx,
+                    y2: prev.y2 + dy,
+                  }
+                : prev,
+            );
+          }}
+        >
+          <Line
+            closed
+            points={[ch.x1, ch.y1, ch.x2, ch.y2, ch.x2, ch.y2 + ch.offsetY, ch.x1, ch.y1 + ch.offsetY]}
+            fill={ch.color}
+            opacity={ch.fillOpacity}
+          />
+          <Line
+            points={[ch.x1, ch.y1, ch.x2, ch.y2]}
+            stroke={ch.color}
+            strokeWidth={selected ? ch.strokeWidth + 1 : ch.strokeWidth}
+            hitStrokeWidth={10}
+          />
+          <Line
+            points={[ch.x1, ch.y1 + ch.offsetY, ch.x2, ch.y2 + ch.offsetY]}
+            stroke={ch.color}
+            strokeWidth={selected ? ch.strokeWidth + 1 : ch.strokeWidth}
+            hitStrokeWidth={10}
+          />
+          <Line
+            points={[ch.x1, ch.y1 + ch.offsetY / 2, ch.x2, ch.y2 + ch.offsetY / 2]}
+            stroke={ch.color}
+            strokeWidth={1}
+            dash={[5, 4]}
+          />
+          {selected && !isPreview && (
+            <>
+              <Circle
+                x={ch.x1}
+                y={ch.y1}
+                radius={4.5}
+                fill="#FFFFFF"
+                stroke={ch.color}
+                strokeWidth={1.5}
+                draggable
+                onDragEnd={(ev) => {
+                  ev.cancelBubble = true;
+                  const nx = ev.target.x();
+                  const ny = ev.target.y();
+                  updateShapeById(ch.id, (prev) =>
+                    prev.type === 'channel' ? { ...prev, x1: nx, y1: ny } : prev,
+                  );
+                }}
+              />
+              <Circle
+                x={ch.x2}
+                y={ch.y2}
+                radius={4.5}
+                fill="#FFFFFF"
+                stroke={ch.color}
+                strokeWidth={1.5}
+                draggable
+                onDragEnd={(ev) => {
+                  ev.cancelBubble = true;
+                  const nx = ev.target.x();
+                  const ny = ev.target.y();
+                  updateShapeById(ch.id, (prev) =>
+                    prev.type === 'channel' ? { ...prev, x2: nx, y2: ny } : prev,
+                  );
+                }}
+              />
+              <Circle
+                x={midX}
+                y={midY + ch.offsetY}
+                radius={4.5}
+                fill="#F59E0B"
+                stroke="#FFFFFF"
+                strokeWidth={1.5}
+                draggable
+                onDragEnd={(ev) => {
+                  ev.cancelBubble = true;
+                  const ny = ev.target.y();
+                  updateShapeById(ch.id, (prev) =>
+                    prev.type === 'channel' ? { ...prev, offsetY: ny - midY } : prev,
+                  );
+                }}
+              />
+            </>
+          )}
+        </Group>
+      );
+    }
+
     if (s.type === 'zone_box') {
       const z = s as ZoneBoxShape;
       return (
@@ -671,7 +1101,7 @@ export function DrawingCanvas({
             pointerWidth={8}
           />
           <Text
-            x={a.x2 + 6}
+            x={a.x2 >= a.x1 ? a.x2 + 6 : a.x2 - 36}
             y={a.y2 - 7}
             text={a.label}
             fontSize={11}
@@ -682,9 +1112,151 @@ export function DrawingCanvas({
       );
     }
 
+    if (s.type === 'fib_retracement') {
+      const fib = s as FibRetracementShape;
+      const { levels, goldenTopY, goldenBottomY } = computeFibLevels(fib.startY, fib.endY);
+      const topY = Math.min(fib.startY, fib.endY);
+      const spanH = Math.max(20, Math.abs(fib.endY - fib.startY));
+      return (
+        <Group
+          key={fib.id}
+          id={fib.id}
+          draggable={selectable}
+          onClick={() => selectable && setSelectedId(fib.id)}
+          onTap={() => selectable && setSelectedId(fib.id)}
+          onDragEnd={(ev) => {
+            const dx = ev.target.x();
+            const dy = ev.target.y();
+            ev.target.position({ x: 0, y: 0 });
+            updateShapeById(fib.id, (prev) =>
+              prev.type === 'fib_retracement'
+                ? { ...prev, x: prev.x + dx, startY: prev.startY + dy, endY: prev.endY + dy }
+                : prev,
+            );
+          }}
+        >
+          <Rect
+            x={fib.x}
+            y={topY}
+            width={fib.width}
+            height={spanH}
+            fill="transparent"
+            stroke={selected ? '#60A5FA' : undefined}
+            strokeWidth={selected ? 1 : 0}
+            dash={selected ? [3, 3] : undefined}
+          />
+          <Rect
+            x={fib.x}
+            y={goldenTopY}
+            width={fib.width}
+            height={Math.max(4, goldenBottomY - goldenTopY)}
+            fill={fib.color}
+            opacity={0.14}
+          />
+          {levels.map((lvl) => (
+            <Group key={lvl.ratio}>
+              <Line
+                points={[fib.x, lvl.y, fib.x + fib.width, lvl.y]}
+                stroke={lvl.isHighlight ? fib.color : '#94A3B8'}
+                strokeWidth={lvl.isHighlight ? 1.5 : 1}
+                dash={lvl.isHighlight ? undefined : [4, 3]}
+                hitStrokeWidth={8}
+              />
+              <Text
+                x={fib.x + 4}
+                y={lvl.y - 11}
+                text={lvl.label}
+                fontSize={9}
+                fontStyle={lvl.isHighlight ? 'bold' : 'normal'}
+                fill={lvl.isHighlight ? fib.color : '#CBD5E1'}
+                listening={false}
+              />
+            </Group>
+          ))}
+          {selected && !isPreview && (
+            <>
+              <Circle
+                x={fib.x}
+                y={fib.startY}
+                radius={4.5}
+                fill="#FFFFFF"
+                stroke={fib.color}
+                strokeWidth={1.5}
+                draggable
+                onDragMove={(ev) => {
+                  ev.cancelBubble = true;
+                  const nx = ev.target.x();
+                  const ny = ev.target.y();
+                  const anchorRight = fib.x + fib.width;
+                  setLiveShapeOverride({
+                    ...fib,
+                    width: Math.max(24, anchorRight - nx),
+                    x: Math.min(nx, anchorRight - 24),
+                    startY: ny,
+                  });
+                }}
+                onDragEnd={(ev) => {
+                  ev.cancelBubble = true;
+                  const nx = ev.target.x();
+                  const ny = ev.target.y();
+                  setLiveShapeOverride(null);
+                  updateShapeById(fib.id, (prev) =>
+                    prev.type === 'fib_retracement'
+                      ? {
+                          ...prev,
+                          width: Math.max(24, prev.x + prev.width - nx),
+                          x: Math.min(nx, prev.x + prev.width - 24),
+                          startY: ny,
+                        }
+                      : prev,
+                  );
+                }}
+              />
+              <Circle
+                x={fib.x + fib.width}
+                y={fib.endY}
+                radius={4.5}
+                fill="#FFFFFF"
+                stroke={fib.color}
+                strokeWidth={1.5}
+                draggable
+                onDragMove={(ev) => {
+                  ev.cancelBubble = true;
+                  const nx = ev.target.x();
+                  const ny = ev.target.y();
+                  setLiveShapeOverride({
+                    ...fib,
+                    width: Math.max(24, nx - fib.x),
+                    endY: ny,
+                  });
+                }}
+                onDragEnd={(ev) => {
+                  ev.cancelBubble = true;
+                  const nx = ev.target.x();
+                  const ny = ev.target.y();
+                  setLiveShapeOverride(null);
+                  updateShapeById(fib.id, (prev) =>
+                    prev.type === 'fib_retracement'
+                      ? {
+                          ...prev,
+                          width: Math.max(24, nx - prev.x),
+                          endY: ny,
+                        }
+                      : prev,
+                  );
+                }}
+              />
+            </>
+          )}
+        </Group>
+      );
+    }
+
     if (s.type === 'ote_fib') {
       const f = s as OteFibShape;
       const { levels, zoneTopY, zoneBottomY } = computeOteFibLevels(f.startY, f.endY);
+      const topY = Math.min(f.startY, f.endY);
+      const spanH = Math.max(20, Math.abs(f.endY - f.startY));
       return (
         <Group
           key={f.id}
@@ -703,13 +1275,25 @@ export function DrawingCanvas({
             );
           }}
         >
+          {/* Full swing bounding hit area so OTE can be selected & dragged anywhere */}
+          <Rect
+            x={f.x}
+            y={topY}
+            width={f.width}
+            height={spanH}
+            fill="transparent"
+            stroke={selected ? '#60A5FA' : undefined}
+            strokeWidth={selected ? 1 : 0}
+            dash={selected ? [3, 3] : undefined}
+          />
           <Rect
             x={f.x}
             y={zoneTopY}
             width={f.width}
             height={Math.max(4, zoneBottomY - zoneTopY)}
             fill={f.color}
-            opacity={0.12}
+            opacity={0.14}
+            listening={false}
           />
           {levels.map((lvl) => (
             <Group key={lvl.ratio}>
@@ -718,6 +1302,7 @@ export function DrawingCanvas({
                 stroke={lvl.isSweetSpot ? '#10B981' : f.color}
                 strokeWidth={lvl.isSweetSpot ? 2 : 1}
                 dash={lvl.isSweetSpot ? undefined : [4, 3]}
+                hitStrokeWidth={10}
               />
               <Text
                 x={f.x + 4}
@@ -726,9 +1311,85 @@ export function DrawingCanvas({
                 fontSize={10}
                 fontStyle="bold"
                 fill={lvl.isSweetSpot ? '#34D399' : f.color}
+                listening={false}
               />
             </Group>
           ))}
+          {selected && !isPreview && (
+            <>
+              <Circle
+                x={f.x}
+                y={f.startY}
+                radius={4.5}
+                fill="#FFFFFF"
+                stroke={f.color}
+                strokeWidth={1.5}
+                draggable
+                onDragMove={(ev) => {
+                  ev.cancelBubble = true;
+                  const nx = ev.target.x();
+                  const ny = ev.target.y();
+                  const anchorRight = f.x + f.width;
+                  setLiveShapeOverride({
+                    ...f,
+                    width: Math.max(24, anchorRight - nx),
+                    x: Math.min(nx, anchorRight - 24),
+                    startY: ny,
+                  });
+                }}
+                onDragEnd={(ev) => {
+                  ev.cancelBubble = true;
+                  const nx = ev.target.x();
+                  const ny = ev.target.y();
+                  setLiveShapeOverride(null);
+                  updateShapeById(f.id, (prev) =>
+                    prev.type === 'ote_fib'
+                      ? {
+                          ...prev,
+                          width: Math.max(24, prev.x + prev.width - nx),
+                          x: Math.min(nx, prev.x + prev.width - 24),
+                          startY: ny,
+                        }
+                      : prev,
+                  );
+                }}
+              />
+              <Circle
+                x={f.x + f.width}
+                y={f.endY}
+                radius={4.5}
+                fill="#FFFFFF"
+                stroke={f.color}
+                strokeWidth={1.5}
+                draggable
+                onDragMove={(ev) => {
+                  ev.cancelBubble = true;
+                  const nx = ev.target.x();
+                  const ny = ev.target.y();
+                  setLiveShapeOverride({
+                    ...f,
+                    width: Math.max(24, nx - f.x),
+                    endY: ny,
+                  });
+                }}
+                onDragEnd={(ev) => {
+                  ev.cancelBubble = true;
+                  const nx = ev.target.x();
+                  const ny = ev.target.y();
+                  setLiveShapeOverride(null);
+                  updateShapeById(f.id, (prev) =>
+                    prev.type === 'ote_fib'
+                      ? {
+                          ...prev,
+                          width: Math.max(24, nx - prev.x),
+                          endY: ny,
+                        }
+                      : prev,
+                  );
+                }}
+              />
+            </>
+          )}
         </Group>
       );
     }
@@ -767,13 +1428,18 @@ export function DrawingCanvas({
     { id: 'select', label: 'Select / Resize', short: 'Sel', icon: MousePointer },
     { id: 'pen', label: 'Freehand Pen', short: 'Pen', icon: PenTool },
     { id: 'candle', label: 'Candlestick Builder (Drag Up=Bull / Down=Bear)', short: 'Candle', icon: CandlestickChart },
+    { id: 'rect', label: 'Rectangle Box', short: 'Rect', icon: RectangleHorizontal },
     { id: 'fvg', label: 'FVG Shaded Zone', short: 'FVG', icon: Square },
     { id: 'ifvg', label: 'Inversion FVG', short: 'IFVG', icon: Square },
     { id: 'order_block', label: 'Order Block (OB)', short: 'OB', icon: Layers },
     { id: 'breaker', label: 'Breaker Block (BB)', short: 'BB', icon: Layers },
     { id: 'liquidity', label: 'Liquidity Trendline ($$$/BSL/SSL)', short: 'Liq', icon: TrendingUp },
-    { id: 'mss', label: 'Market Structure Shift Arrow', short: 'MSS', icon: ArrowUpRight },
-    { id: 'cisd', label: 'Change in State of Delivery Arrow', short: 'CISD', icon: ArrowUpRight },
+    { id: 'hline', label: 'Horizontal Line (1-click)', short: 'H-Line', icon: Minus },
+    { id: 'vline', label: 'Vertical Line (1-click)', short: 'V-Line', icon: MoveVertical },
+    { id: 'channel', label: 'Parallel Channel', short: 'Channel', icon: Rows3 },
+    { id: 'mss', label: 'Market Structure Shift Arrow (1-click horizontal, or drag)', short: 'MSS', icon: ArrowRight },
+    { id: 'cisd', label: 'Change in State of Delivery Arrow (1-click horizontal, or drag)', short: 'CISD', icon: ArrowRight },
+    { id: 'fib', label: 'Fibonacci Retracement (0 - 1)', short: 'Fib', icon: SlidersHorizontal },
     { id: 'ote_fib', label: 'OTE Fibonacci (0.62 / 0.705 / 0.79)', short: 'OTE', icon: Percent },
     { id: 'text', label: 'Text Annotation', short: 'Text', icon: Type },
   ];
@@ -953,7 +1619,7 @@ export function DrawingCanvas({
           onTouchMove={handleMouseMove}
           onTouchEnd={handleMouseUp}
         >
-          {/* Layer 1: Static Grid + Cached Screenshot Background */}
+          {/* Layer 1: Background Fill */}
           <Layer listening={false}>
             <Rect
               x={0}
@@ -962,20 +1628,61 @@ export function DrawingCanvas({
               height={stageSize.height}
               fill="#0b1120"
             />
+          </Layer>
+
+          {/* Layer 2: Interactive Background Screenshot + ICT / SMC Shapes */}
+          <Layer ref={layerRef}>
             {bgImage && bgDrawRect && (
-              <KonvaImage
-                image={bgImage}
+              <Group
+                id={BG_NODE_ID}
                 x={bgDrawRect.x}
                 y={bgDrawRect.y}
                 width={bgDrawRect.width}
                 height={bgDrawRect.height}
-              />
+                listening={tool === 'select'}
+                draggable={tool === 'select'}
+                onClick={() => tool === 'select' && setSelectedId(BG_NODE_ID)}
+                onTap={() => tool === 'select' && setSelectedId(BG_NODE_ID)}
+                onDragEnd={(ev) => {
+                  onChange({
+                    ...canvasDoc,
+                    backgroundRect: {
+                      x: ev.target.x(),
+                      y: ev.target.y(),
+                      width: bgDrawRect.width,
+                      height: bgDrawRect.height,
+                    },
+                    shapes: history.present,
+                  });
+                }}
+                onTransformEnd={(ev) => {
+                  const node = ev.target;
+                  const scaleX = node.scaleX();
+                  const scaleY = node.scaleY();
+                  node.scaleX(1);
+                  node.scaleY(1);
+                  onChange({
+                    ...canvasDoc,
+                    backgroundRect: {
+                      x: node.x(),
+                      y: node.y(),
+                      width: Math.max(40, bgDrawRect.width * scaleX),
+                      height: Math.max(30, bgDrawRect.height * scaleY),
+                    },
+                    shapes: history.present,
+                  });
+                }}
+              >
+                <KonvaImage
+                  image={bgImage}
+                  width={bgDrawRect.width}
+                  height={bgDrawRect.height}
+                />
+              </Group>
             )}
-          </Layer>
-
-          {/* Layer 2: Interactive ICT / SMC Shapes */}
-          <Layer ref={layerRef}>
-            {history.present.map((s) => renderShape(s, false))}
+            {history.present.map((s) =>
+              renderShape(liveShapeOverride?.id === s.id ? liveShapeOverride : s, false),
+            )}
             {draftShape && renderShape(draftShape, true)}
             <Transformer
               ref={transformerRef}
@@ -1016,13 +1723,15 @@ export function DrawingCanvas({
         {canvasDoc.backgroundAttachmentPath && (
           <button
             type="button"
-            onClick={() =>
+            onClick={() => {
+              if (selectedId === BG_NODE_ID) setSelectedId(null);
               onChange({
                 ...canvasDoc,
                 backgroundAttachmentPath: null,
+                backgroundRect: null,
                 shapes: history.present,
-              })
-            }
+              });
+            }}
             className="absolute right-1.5 bottom-1.5 rounded bg-slate-950/85 px-1.5 py-0.5 text-[9px] text-rose-300 hover:bg-slate-900"
           >
             Remove BG

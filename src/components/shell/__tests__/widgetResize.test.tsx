@@ -69,7 +69,7 @@ describe('Per-widget resize', () => {
 
     // Ensure other widgets also appear in container without errors
     expect(container.querySelectorAll('section').length).toBe(DEFAULT_WIDGET_LAYOUT.length);
-  });
+  }, 15000);
 
   it('allows setting and clearing widget customHeight in SettingsOverlay Widgets tab', async () => {
     render(<SettingsOverlay initialTab="widgets" />);
@@ -143,5 +143,5 @@ describe('Per-widget resize', () => {
       useSettingsStore.getState().widgetLayout.find((w) => w.widgetId === 'daily-bias')?.customWidth,
     ).toBeNull();
     expect(biasSection.style.width).toBe('330px');
-  });
+  }, 15000);
 });

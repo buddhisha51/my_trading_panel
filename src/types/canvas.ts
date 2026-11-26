@@ -2,13 +2,18 @@ export type CanvasTool =
   | 'select'
   | 'pen'
   | 'candle'
+  | 'rect'
   | 'fvg'
   | 'ifvg'
   | 'order_block'
   | 'breaker'
   | 'liquidity'
+  | 'hline'
+  | 'vline'
+  | 'channel'
   | 'mss'
   | 'cisd'
+  | 'fib'
   | 'ote_fib'
   | 'text';
 
@@ -19,13 +24,63 @@ export interface BaseShape {
   type:
     | 'freehand'
     | 'candle'
+    | 'rect'
+    | 'image'
     | 'zone_box'
     | 'liquidity_line'
+    | 'straight_line'
+    | 'channel'
     | 'mss_arrow'
+    | 'fib_retracement'
     | 'ote_fib'
     | 'text_note';
   color: string;
   strokeWidth: number;
+}
+
+export interface ImageShape extends BaseShape {
+  type: 'image';
+  attachmentPath: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface RectShape extends BaseShape {
+  type: 'rect';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  fillOpacity: number;
+}
+
+export interface StraightLineShape extends BaseShape {
+  type: 'straight_line';
+  variant: 'horizontal' | 'vertical';
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
+export interface ChannelShape extends BaseShape {
+  type: 'channel';
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  offsetY: number;
+  fillOpacity: number;
+}
+
+export interface FibRetracementShape extends BaseShape {
+  type: 'fib_retracement';
+  x: number;
+  width: number;
+  startY: number;
+  endY: number;
 }
 
 export interface FreehandShape extends BaseShape {
@@ -92,11 +147,23 @@ export interface TextNoteShape extends BaseShape {
 export type CanvasShape =
   | FreehandShape
   | CandleShape
+  | RectShape
+  | ImageShape
   | ZoneBoxShape
   | LiquidityLineShape
+  | StraightLineShape
+  | ChannelShape
   | MssArrowShape
+  | FibRetracementShape
   | OteFibShape
   | TextNoteShape;
+
+export interface CanvasBackgroundRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 
 export interface CanvasDocument {
   version: 1;
@@ -104,6 +171,7 @@ export interface CanvasDocument {
   height: number;
   /** Relative attachment path under `%APPDATA%/attachments/` — never raw base64 */
   backgroundAttachmentPath: string | null;
+  backgroundRect?: CanvasBackgroundRect | null;
   shapes: CanvasShape[];
 }
 
@@ -121,6 +189,7 @@ export function createEmptyCanvasDocument(
     width,
     height,
     backgroundAttachmentPath: null,
+    backgroundRect: null,
     shapes: [],
   };
 }
@@ -129,6 +198,23 @@ export function parseCanvasDocument(raw: string | null | undefined): CanvasDocum
   if (!raw) return createEmptyCanvasDocument();
   try {
     const parsed = JSON.parse(raw) as Partial<CanvasDocument>;
+    const rawBgRect = parsed.backgroundRect;
+    const backgroundRect =
+      rawBgRect &&
+      typeof rawBgRect.x === 'number' &&
+      typeof rawBgRect.y === 'number' &&
+      typeof rawBgRect.width === 'number' &&
+      typeof rawBgRect.height === 'number' &&
+      rawBgRect.width > 0 &&
+      rawBgRect.height > 0
+        ? {
+            x: rawBgRect.x,
+            y: rawBgRect.y,
+            width: rawBgRect.width,
+            height: rawBgRect.height,
+          }
+        : null;
+
     return {
       version: 1,
       width: typeof parsed.width === 'number' && parsed.width > 0 ? parsed.width : 640,
@@ -138,7 +224,18 @@ export function parseCanvasDocument(raw: string | null | undefined): CanvasDocum
         !parsed.backgroundAttachmentPath.startsWith('data:')
           ? parsed.backgroundAttachmentPath
           : null,
-      shapes: Array.isArray(parsed.shapes) ? parsed.shapes : [],
+      backgroundRect,
+      shapes: Array.isArray(parsed.shapes)
+        ? parsed.shapes.filter(
+            (s) =>
+              !(
+                s &&
+                s.type === 'image' &&
+                typeof s.attachmentPath === 'string' &&
+                s.attachmentPath.startsWith('data:')
+              ),
+          )
+        : [],
     };
   } catch {
     return createEmptyCanvasDocument();

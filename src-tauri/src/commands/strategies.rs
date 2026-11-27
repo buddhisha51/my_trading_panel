@@ -51,6 +51,7 @@ pub struct ChecklistRuleInput {
     pub id: Option<String>,
     pub name: String,
     pub description: Option<String>,
+    #[allow(dead_code)]
     pub sort_order: i64,
     pub is_required: bool,
 }

@@ -100,3 +100,27 @@ npm.cmd run tauri dev
 # Build optimized Windows NSIS installer bundle
 npm.cmd run tauri build
 ```
+
+---
+
+## Installing on Windows (GitHub Releases)
+
+1. Download the `*-setup.exe` NSIS installer (and optional `SHA256SUMS.txt`) from the [GitHub Releases](https://github.com/buddhisha51/my_trading_panel/releases) page.
+2. Verify the download integrity in PowerShell:
+   ```powershell
+   Get-FileHash .\ICT*setup.exe -Algorithm SHA256
+   ```
+   Confirm the printed hash matches `SHA256SUMS.txt`.
+3. Run the installer (`currentUser` install — no administrator privileges required). Because release builds are currently unsigned, Windows SmartScreen may show *"Windows protected your PC"* on first launch; click **More info → Run anyway**.
+4. The app starts fresh with an empty local SQLite database stored at `%APPDATA%\com.icttrading.panel\` (`app.db`, `attachments\`, `backups\`) — no developer data is ever included in the installer.
+5. **Moving to a New Machine:** Export your `.zip` archive from **Settings → Keys & Data → Export Backup** on your old machine and restore it on the new machine using **Import (replace)**. *(Optional Finnhub API keys live in Windows Credential Manager and must be re-entered on a new PC.)*
+
+## Cutting a Release
+
+1. Ensure `version` matches across `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json`.
+2. Tag and push to GitHub:
+   ```powershell
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+   `.github/workflows/release.yml` validates version/tag parity, runs `npm run build`, `npm test`, and `cargo test`, builds the Windows NSIS `.exe` installer, computes `SHA256SUMS.txt`, and creates a **Draft GitHub Release** for review before publishing.

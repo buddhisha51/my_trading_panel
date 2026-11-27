@@ -38,6 +38,12 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "publisher": "Buddhisha Chamaka",
+    "copyright": "Copyright (c) 2026 Buddhisha Chamaka",
+    "category": "Finance",
+    "shortDescription": "Always-on-top slide-out ICT / SMC trading companion panel",
+    "license": "MIT",
+    "licenseFile": "../LICENSE",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -46,6 +52,10 @@
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper"
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": false
       }
     }
   }

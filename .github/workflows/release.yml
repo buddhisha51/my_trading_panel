@@ -1,0 +1,174 @@
+name: Release Windows Installer
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (build & upload workflow artifact only without creating a GitHub Release)"
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  release-windows:
+    name: Build Windows NSIS Installer
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify version sync across package.json, Cargo.toml, tauri.conf.json, and git tag
+        shell: pwsh
+        run: |
+          $pkgVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $tauriVersion = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $cargoToml = Get-Content src-tauri/Cargo.toml -Raw
+          if ($cargoToml -match '(?m)^version\s*=\s*"([^"]+)"') {
+            $cargoVersion = $Matches[1]
+          } else {
+            Write-Error "Could not parse version from src-tauri/Cargo.toml"
+            exit 1
+          }
+
+          Write-Host "Versions -> package.json: $pkgVersion | Cargo.toml: $cargoVersion | tauri.conf.json: $tauriVersion"
+          if ($pkgVersion -ne $cargoVersion -or $pkgVersion -ne $tauriVersion) {
+            Write-Error "Version mismatch! All three files must have identical versions."
+            exit 1
+          }
+
+          if ($env:GITHUB_REF_TYPE -eq "tag") {
+            $expectedTag = "v$pkgVersion"
+            if ($env:GITHUB_REF_NAME -ne $expectedTag) {
+              Write-Error "Tag '$($env:GITHUB_REF_NAME)' does not match version '$expectedTag'."
+              exit 1
+            }
+          }
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Build frontend & run Vitest suite
+        shell: pwsh
+        run: |
+          npm.cmd run build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm.cmd test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+
+      - name: Run Cargo tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Build NSIS installer (dry run)
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run
+        run: npm.cmd run tauri build
+
+      - name: Generate SHA256SUMS.txt (dry run)
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem "src-tauri/target/release/bundle/nsis/*.exe"
+          if (-not $files) {
+            Write-Error "No NSIS installer found in src-tauri/target/release/bundle/nsis"
+            exit 1
+          }
+          $lines = foreach ($f in $files) {
+            $hash = (Get-FileHash -Path $f.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($f.Name)"
+          }
+          Set-Content -Path "SHA256SUMS.txt" -Value $lines -Encoding ASCII
+          Get-Content "SHA256SUMS.txt"
+
+      - name: Upload dry-run artifacts
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-nsis-installer-dry-run
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            SHA256SUMS.txt
+
+      - name: Build & create Draft GitHub Release via tauri-action
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run)
+        id: tauri_release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: v__VERSION__
+          releaseName: ICT Trading Panel v__VERSION__
+          releaseBody: |
+            ## ICT / SMC Trading Panel v__VERSION__ (Windows x64)
+
+            ### Installation
+            1. Download the `*-setup.exe` NSIS installer below and verify its checksum against `SHA256SUMS.txt` (`Get-FileHash <installer>.exe -Algorithm SHA256`).
+            2. Run the installer (`currentUser` install — no admin privileges required). First-time unsigned runs may trigger Windows SmartScreen (**More info → Run anyway**).
+            3. Launches cleanly with a fresh local database in `%APPDATA%\com.icttrading.panel\`.
+
+            ### Moving Existing Data From Another PC
+            Export a `.zip` archive from **Settings → Keys & Data → Export Backup** on your old PC and restore it on your new PC via **Import (replace)**.
+          releaseDraft: true
+          prerelease: false
+
+      - name: Generate & attach SHA256SUMS.txt to Draft Release
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $files = Get-ChildItem "src-tauri/target/release/bundle/nsis/*.exe"
+          if (-not $files) {
+            Write-Error "No NSIS installer found in src-tauri/target/release/bundle/nsis"
+            exit 1
+          }
+          $lines = foreach ($f in $files) {
+            $hash = (Get-FileHash -Path $f.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($f.Name)"
+          }
+          Set-Content -Path "SHA256SUMS.txt" -Value $lines -Encoding ASCII
+          Get-Content "SHA256SUMS.txt"
+
+          $pkgVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $tag = if ($env:GITHUB_REF_TYPE -eq "tag") { $env:GITHUB_REF_NAME } else { "v$pkgVersion" }
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept        = "application/vnd.github+json"
+          }
+
+          $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases?per_page=20" -Headers $headers
+          $release = $releases | Where-Object { $_.tag_name -eq $tag } | Select-Object -First 1
+          if (-not $release) {
+            Write-Error "Could not find GitHub Release for tag $tag"
+            exit 1
+          }
+
+          $existing = $release.assets | Where-Object { $_.name -eq "SHA256SUMS.txt" } | Select-Object -First 1
+          if ($existing) {
+            Invoke-RestMethod -Method Delete -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/assets/$($existing.id)" -Headers $headers
+          }
+
+          $uploadBase = ($release.upload_url -replace '\{\?name,label\}$', '')
+          Invoke-RestMethod -Method Post `
+            -Uri "${uploadBase}?name=SHA256SUMS.txt" `
+            -Headers $headers `
+            -ContentType "text/plain; charset=utf-8" `
+            -InFile "SHA256SUMS.txt"

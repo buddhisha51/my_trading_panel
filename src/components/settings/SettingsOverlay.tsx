@@ -1235,7 +1235,8 @@ export function SettingsOverlay({ initialTab = 'dock' }: SettingsOverlayProps) {
 
                   <p className="text-[10px] text-slate-400">
                     Packages your SQLite database (notes, playbooks, trades, bias, settings) plus
-                    all chart screenshots into a portable archive.
+                    all chart screenshots into a portable archive for moving to a new machine.
+                    Optional Finnhub keys stay in Windows Credential Manager and are not exported.
                   </p>
 
                   <div className="flex flex-wrap items-center gap-1.5">
@@ -1263,7 +1264,9 @@ export function SettingsOverlay({ initialTab = 'dock' }: SettingsOverlayProps) {
                               // Headless fallback
                             }
                             setBackupStatusMsg(
-                              `Exported ${res.filename} (${res.manifest.attachmentCount} attachments).`,
+                              res.filePath
+                                ? `Exported ${res.filename} (${res.manifest.attachmentCount} attachments) to ${res.filePath}.`
+                                : `Exported ${res.filename} (${res.manifest.attachmentCount} attachments).`,
                             );
                           })
                           .catch((err) =>

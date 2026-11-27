@@ -110,6 +110,7 @@ export function buildZoneBoxFromDrag(
   const colorMap: Record<ZoneBoxShape['kind'], string> = {
     FVG: '#3B82F6',
     IFVG: '#8B5CF6',
+    BPR: '#06B6D4',
     OB: '#10B981',
     BB: '#F59E0B',
   };

@@ -52,6 +52,11 @@ describe('Milestone 2 Widgets', () => {
   it('persists directional bias clicks inside DailyBiasWidget', async () => {
     render(<DailyBiasWidget />);
 
+    expect(screen.getByText('D1')).toBeTruthy();
+    expect(screen.getByText('H4')).toBeTruthy();
+    expect(screen.getByText('H1')).toBeTruthy();
+    expect(screen.queryByText('M15')).toBeNull();
+
     const bullButtons = screen.getAllByText('Bull');
     await act(async () => {
       fireEvent.click(bullButtons[0]); // D1 Bullish

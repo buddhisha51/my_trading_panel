@@ -51,7 +51,7 @@ export const WIDGET_CATALOG: WidgetMeta[] = [
   {
     id: 'daily-bias',
     title: 'Daily Bias Quick-Strip',
-    description: 'D/4H/15M directional bias and PDH/PDL/Asian liquidity notes.',
+    description: 'D/4H/1H directional bias and PDH/PDL/Asian liquidity notes.',
     milestone: 2,
   },
   {

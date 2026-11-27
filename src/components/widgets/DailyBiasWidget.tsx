@@ -172,7 +172,7 @@ export function DailyBiasWidget() {
   }> = [
     { key: 'biasDaily', label: 'D1', value: entry?.biasDaily ?? null },
     { key: 'bias4h', label: 'H4', value: entry?.bias4h ?? null },
-    { key: 'bias15m', label: 'M15', value: entry?.bias15m ?? null },
+    { key: 'bias15m', label: 'H1', value: entry?.bias15m ?? null },
   ];
 
   const todayNy = getTodayNyDateString();
@@ -299,7 +299,7 @@ export function DailyBiasWidget() {
         )}
       </div>
 
-      {/* D1 / H4 / M15 Directional Bias Matrix */}
+      {/* D1 / H4 / H1 Directional Bias Matrix */}
       <div className="space-y-1 rounded-md border border-slate-800 bg-slate-950/60 p-2">
         {tfRows.map((row) => (
           <div key={row.key} className="flex items-center justify-between gap-2">

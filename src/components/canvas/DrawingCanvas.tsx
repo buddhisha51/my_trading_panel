@@ -90,6 +90,13 @@ interface DrawingCanvasProps {
 
 const PEN_COLORS = ['#3B82F6', '#10B981', '#EF4444', '#F59E0B', '#F8FAFC', '#A855F7'];
 const BG_NODE_ID = '__canvas_bg__';
+const ZONE_TOOL_TO_KIND: Partial<Record<CanvasTool, ZoneBoxShape['kind']>> = {
+  fvg: 'FVG',
+  ifvg: 'IFVG',
+  bpr: 'BPR',
+  order_block: 'OB',
+  breaker: 'BB',
+};
 
 function readBlobImageDimensions(blob: Blob): Promise<{ width: number; height: number }> {
   if (typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') {
@@ -486,16 +493,10 @@ export function DrawingCanvas({
       setDraftShape(buildCandleFromDrag(pos.x, pos.y, pos.y - 20));
     } else if (tool === 'rect') {
       setDraftShape(buildRectFromDrag(pos.x, pos.y, pos.x, pos.y, penColor));
-    } else if (tool === 'fvg' || tool === 'ifvg' || tool === 'order_block' || tool === 'breaker') {
-      const kind =
-        tool === 'fvg'
-          ? 'FVG'
-          : tool === 'ifvg'
-            ? 'IFVG'
-            : tool === 'order_block'
-              ? 'OB'
-              : 'BB';
-      setDraftShape(buildZoneBoxFromDrag(kind, pos.x, pos.y, pos.x + 2, pos.y + 2));
+    } else if (ZONE_TOOL_TO_KIND[tool]) {
+      setDraftShape(
+        buildZoneBoxFromDrag(ZONE_TOOL_TO_KIND[tool], pos.x, pos.y, pos.x + 2, pos.y + 2),
+      );
     } else if (tool === 'liquidity') {
       setDraftShape(buildLiquidityLineFromDrag(liquidityTag, pos.x, pos.y, pos.x + 2, pos.y));
     } else if (tool === 'hline' || tool === 'vline') {
@@ -699,9 +700,9 @@ export function DrawingCanvas({
             updateShapeById(s.id, (prev) =>
               prev.type === 'freehand'
                 ? {
-                    ...prev,
-                    points: prev.points.map((v, idx) => (idx % 2 === 0 ? v + dx : v + dy)),
-                  }
+                  ...prev,
+                  points: prev.points.map((v, idx) => (idx % 2 === 0 ? v + dx : v + dy)),
+                }
                 : prev,
             );
           }}
@@ -726,12 +727,12 @@ export function DrawingCanvas({
             updateShapeById(c.id, (prev) =>
               prev.type === 'candle'
                 ? {
-                    ...prev,
-                    x: prev.x + dx,
-                    bodyY: prev.bodyY + dy,
-                    wickTopY: prev.wickTopY + dy,
-                    wickBottomY: prev.wickBottomY + dy,
-                  }
+                  ...prev,
+                  x: prev.x + dx,
+                  bodyY: prev.bodyY + dy,
+                  wickTopY: prev.wickTopY + dy,
+                  wickBottomY: prev.wickBottomY + dy,
+                }
                 : prev,
             );
           }}
@@ -850,12 +851,12 @@ export function DrawingCanvas({
             updateShapeById(r.id, (prev) =>
               prev.type === 'rect'
                 ? {
-                    ...prev,
-                    x: node.x(),
-                    y: node.y(),
-                    width: Math.max(18, prev.width * scaleX),
-                    height: Math.max(12, prev.height * scaleY),
-                  }
+                  ...prev,
+                  x: node.x(),
+                  y: node.y(),
+                  width: Math.max(18, prev.width * scaleX),
+                  height: Math.max(12, prev.height * scaleY),
+                }
                 : prev,
             );
           }}
@@ -888,12 +889,12 @@ export function DrawingCanvas({
             updateShapeById(sl.id, (prev) =>
               prev.type === 'straight_line'
                 ? {
-                    ...prev,
-                    x1: prev.x1 + dx,
-                    y1: prev.y1 + dy,
-                    x2: prev.x2 + dx,
-                    y2: prev.y2 + dy,
-                  }
+                  ...prev,
+                  x1: prev.x1 + dx,
+                  y1: prev.y1 + dy,
+                  x2: prev.x2 + dx,
+                  y2: prev.y2 + dy,
+                }
                 : prev,
             );
           }}
@@ -926,12 +927,12 @@ export function DrawingCanvas({
             updateShapeById(ch.id, (prev) =>
               prev.type === 'channel'
                 ? {
-                    ...prev,
-                    x1: prev.x1 + dx,
-                    y1: prev.y1 + dy,
-                    x2: prev.x2 + dx,
-                    y2: prev.y2 + dy,
-                  }
+                  ...prev,
+                  x1: prev.x1 + dx,
+                  y1: prev.y1 + dy,
+                  x2: prev.x2 + dx,
+                  y2: prev.y2 + dy,
+                }
                 : prev,
             );
           }}
@@ -1073,12 +1074,12 @@ export function DrawingCanvas({
             updateShapeById(z.id, (prev) =>
               prev.type === 'zone_box'
                 ? {
-                    ...prev,
-                    x: node.x(),
-                    y: node.y(),
-                    width: Math.max(20, prev.width * scaleX),
-                    height: Math.max(12, prev.height * scaleY),
-                  }
+                  ...prev,
+                  x: node.x(),
+                  y: node.y(),
+                  width: Math.max(20, prev.width * scaleX),
+                  height: Math.max(12, prev.height * scaleY),
+                }
                 : prev,
             );
           }}
@@ -1094,6 +1095,27 @@ export function DrawingCanvas({
           />
           {(z.kind === 'OB' || z.kind === 'BB') && (
             <Rect width={4} height={z.height} fill={z.color} opacity={0.95} />
+          )}
+          {z.kind === 'BPR' && (
+            <>
+              <Rect width={z.width} height={3} fill={z.color} opacity={0.75} listening={false} />
+              <Rect
+                y={Math.max(0, z.height - 3)}
+                width={z.width}
+                height={3}
+                fill={z.color}
+                opacity={0.75}
+                listening={false}
+              />
+              <Line
+                points={[0, z.height / 2, z.width, z.height / 2]}
+                stroke={z.color}
+                strokeWidth={1}
+                dash={[4, 3]}
+                opacity={0.75}
+                listening={false}
+              />
+            </>
           )}
           <Text
             text={z.label}
@@ -1388,11 +1410,11 @@ export function DrawingCanvas({
                   updateShapeById(fib.id, (prev) =>
                     prev.type === 'fib_retracement'
                       ? {
-                          ...prev,
-                          width: Math.max(24, prev.x + prev.width - nx),
-                          x: Math.min(nx, prev.x + prev.width - 24),
-                          startY: ny,
-                        }
+                        ...prev,
+                        width: Math.max(24, prev.x + prev.width - nx),
+                        x: Math.min(nx, prev.x + prev.width - 24),
+                        startY: ny,
+                      }
                       : prev,
                   );
                 }}
@@ -1423,10 +1445,10 @@ export function DrawingCanvas({
                   updateShapeById(fib.id, (prev) =>
                     prev.type === 'fib_retracement'
                       ? {
-                          ...prev,
-                          width: Math.max(24, nx - prev.x),
-                          endY: ny,
-                        }
+                        ...prev,
+                        width: Math.max(24, nx - prev.x),
+                        endY: ny,
+                      }
                       : prev,
                   );
                 }}
@@ -1536,11 +1558,11 @@ export function DrawingCanvas({
                   updateShapeById(f.id, (prev) =>
                     prev.type === 'ote_fib'
                       ? {
-                          ...prev,
-                          width: Math.max(24, prev.x + prev.width - nx),
-                          x: Math.min(nx, prev.x + prev.width - 24),
-                          startY: ny,
-                        }
+                        ...prev,
+                        width: Math.max(24, prev.x + prev.width - nx),
+                        x: Math.min(nx, prev.x + prev.width - 24),
+                        startY: ny,
+                      }
                       : prev,
                   );
                 }}
@@ -1571,10 +1593,10 @@ export function DrawingCanvas({
                   updateShapeById(f.id, (prev) =>
                     prev.type === 'ote_fib'
                       ? {
-                          ...prev,
-                          width: Math.max(24, nx - prev.x),
-                          endY: ny,
-                        }
+                        ...prev,
+                        width: Math.max(24, nx - prev.x),
+                        endY: ny,
+                      }
                       : prev,
                   );
                 }}
@@ -1611,11 +1633,11 @@ export function DrawingCanvas({
           updateShapeById(t.id, (prev) =>
             prev.type === 'text_note'
               ? {
-                  ...prev,
-                  x: node.x(),
-                  y: node.y(),
-                  fontSize: Math.max(9, Math.min(48, Math.round(prev.fontSize * scale))),
-                }
+                ...prev,
+                x: node.x(),
+                y: node.y(),
+                fontSize: Math.max(9, Math.min(48, Math.round(prev.fontSize * scale))),
+              }
               : prev,
           );
         }}
@@ -1636,24 +1658,25 @@ export function DrawingCanvas({
     short: string;
     icon: typeof MousePointer;
   }> = [
-    { id: 'select', label: 'Select / Resize', short: 'Sel', icon: MousePointer },
-    { id: 'pen', label: 'Freehand Pen', short: 'Pen', icon: PenTool },
-    { id: 'candle', label: 'Candlestick Builder (Drag Up=Bull / Down=Bear)', short: 'Candle', icon: CandlestickChart },
-    { id: 'rect', label: 'Rectangle Box', short: 'Rect', icon: RectangleHorizontal },
-    { id: 'fvg', label: 'FVG Shaded Zone', short: 'FVG', icon: Square },
-    { id: 'ifvg', label: 'Inversion FVG', short: 'IFVG', icon: Square },
-    { id: 'order_block', label: 'Order Block (OB)', short: 'OB', icon: Layers },
-    { id: 'breaker', label: 'Breaker Block (BB)', short: 'BB', icon: Layers },
-    { id: 'liquidity', label: 'Liquidity Trendline ($$$/BSL/SSL)', short: 'Liq', icon: TrendingUp },
-    { id: 'hline', label: 'Horizontal Line (1-click)', short: 'H-Line', icon: Minus },
-    { id: 'vline', label: 'Vertical Line (1-click)', short: 'V-Line', icon: MoveVertical },
-    { id: 'channel', label: 'Parallel Channel', short: 'Channel', icon: Rows3 },
-    { id: 'mss', label: 'Market Structure Shift Arrow (1-click horizontal, or drag)', short: 'MSS', icon: ArrowRight },
-    { id: 'cisd', label: 'Change in State of Delivery Arrow (1-click horizontal, or drag)', short: 'CISD', icon: ArrowRight },
-    { id: 'fib', label: 'Fibonacci Retracement (0 - 1)', short: 'Fib', icon: SlidersHorizontal },
-    { id: 'ote_fib', label: 'OTE Fibonacci (0.62 / 0.705 / 0.79)', short: 'OTE', icon: Percent },
-    { id: 'text', label: 'Text Annotation', short: 'Text', icon: Type },
-  ];
+      { id: 'select', label: 'Select / Resize', short: 'Sel', icon: MousePointer },
+      { id: 'pen', label: 'Freehand Pen', short: 'Pen', icon: PenTool },
+      { id: 'candle', label: 'Candlestick Builder (Drag Up=Bull / Down=Bear)', short: 'Candle', icon: CandlestickChart },
+      { id: 'rect', label: 'Rectangle Box', short: 'Rect', icon: RectangleHorizontal },
+      { id: 'fvg', label: 'FVG Shaded Zone', short: 'FVG', icon: Square },
+      { id: 'ifvg', label: 'Inversion FVG', short: 'IFVG', icon: Square },
+      { id: 'bpr', label: 'Balanced Price Range (Overlapped FVG)', short: 'BPR', icon: Layers },
+      { id: 'order_block', label: 'Order Block (OB)', short: 'OB', icon: Layers },
+      { id: 'breaker', label: 'Breaker Block (BB)', short: 'BB', icon: Layers },
+      { id: 'liquidity', label: 'Liquidity Trendline ($$$/BSL/SSL)', short: 'Liq', icon: TrendingUp },
+      { id: 'hline', label: 'Horizontal Line (1-click)', short: 'H-Line', icon: Minus },
+      { id: 'vline', label: 'Vertical Line (1-click)', short: 'V-Line', icon: MoveVertical },
+      { id: 'channel', label: 'Parallel Channel', short: 'Channel', icon: Rows3 },
+      { id: 'mss', label: 'Market Structure Shift Arrow (1-click horizontal, or drag)', short: 'MSS', icon: ArrowRight },
+      { id: 'cisd', label: 'Change in State of Delivery Arrow (1-click horizontal, or drag)', short: 'CISD', icon: ArrowRight },
+      { id: 'fib', label: 'Fibonacci Retracement (0 - 1)', short: 'Fib', icon: SlidersHorizontal },
+      { id: 'ote_fib', label: 'OTE Fibonacci (0.62 / 0.705 / 0.79)', short: 'OTE', icon: Percent },
+      { id: 'text', label: 'Text Annotation', short: 'Text', icon: Type },
+    ];
 
   return (
     <div
@@ -1670,11 +1693,10 @@ export function DrawingCanvas({
             type="button"
             title={label}
             onClick={() => setTool(id)}
-            className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
-              tool === id
+            className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-medium transition-colors ${tool === id
                 ? 'border-blue-500 bg-blue-500/20 text-blue-300'
                 : 'border-slate-800 bg-slate-900 text-slate-400 hover:text-slate-200'
-            }`}
+              }`}
           >
             <Icon className="h-3 w-3" />
             <span>{short}</span>
@@ -1688,11 +1710,10 @@ export function DrawingCanvas({
                 key={tag}
                 type="button"
                 onClick={() => setLiquidityTag(tag)}
-                className={`rounded px-1 py-0.5 font-mono text-[9px] ${
-                  liquidityTag === tag
+                className={`rounded px-1 py-0.5 font-mono text-[9px] ${liquidityTag === tag
                     ? 'bg-amber-500/25 text-amber-300'
                     : 'text-slate-400 hover:text-slate-200'
-                }`}
+                  }`}
               >
                 {tag}
               </button>
@@ -1716,9 +1737,8 @@ export function DrawingCanvas({
                 }
               }}
               style={{ backgroundColor: c }}
-              className={`h-4 w-4 rounded-full border ${
-                penColor === c ? 'scale-110 border-white' : 'border-transparent opacity-75'
-              }`}
+              className={`h-4 w-4 rounded-full border ${penColor === c ? 'scale-110 border-white' : 'border-transparent opacity-75'
+                }`}
             />
           ))}
         </div>

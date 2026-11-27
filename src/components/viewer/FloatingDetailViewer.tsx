@@ -44,7 +44,7 @@ function DetailViewerCard({
   const parsedCanvas = rawCanvasJson ? parseCanvasDocument(rawCanvasJson) : null;
   const hasCanvas = Boolean(
     parsedCanvas &&
-      (parsedCanvas.shapes.length > 0 || parsedCanvas.backgroundAttachmentPath),
+    (parsedCanvas.shapes.length > 0 || parsedCanvas.backgroundAttachmentPath),
   );
 
   // Show all attachments clearly, keeping standalone shots distinct if background is also on canvas
@@ -66,11 +66,10 @@ function DetailViewerCard({
     <div
       data-testid="floating-detail-viewer"
       onMouseDown={(e) => e.stopPropagation()}
-      className={`flex h-full w-full flex-col overflow-hidden bg-slate-950 text-slate-100 shadow-2xl ${
-        draggableWindow
+      className={`flex h-full w-full flex-col overflow-hidden bg-slate-950 text-slate-100 shadow-2xl ${draggableWindow
           ? 'border border-slate-800'
           : 'rounded-xl border border-slate-700/90'
-      }`}
+        }`}
     >
       {/* Header (draggable when rendered as standalone Tauri floating window) */}
       <header
@@ -175,11 +174,10 @@ function DetailViewerCard({
                 return (
                   <div
                     key={rule.id}
-                    className={`flex items-center justify-between gap-2 rounded border px-2.5 py-1.5 text-[11px] ${
-                      checked
+                    className={`flex items-center justify-between gap-2 rounded border px-2.5 py-1.5 text-[11px] ${checked
                         ? 'border-emerald-500/40 bg-emerald-500/10 text-slate-100'
                         : 'border-slate-800 bg-slate-950/60 text-slate-300'
-                    }`}
+                      }`}
                   >
                     <div className="flex min-w-0 items-center gap-2">
                       {checked ? (
@@ -209,8 +207,8 @@ function DetailViewerCard({
           />
           {((isNote && !payload.note.bodyText.trim() && payload.note.bodyJson === '') ||
             (!isNote && payload.strategy.bodyJson === '')) && (
-            <p className="text-[11px] italic text-slate-500">No text notes written.</p>
-          )}
+              <p className="text-[11px] italic text-slate-500">No text notes written.</p>
+            )}
         </section>
 
         {/* Full ICT Canvas Diagram */}
@@ -233,11 +231,11 @@ function DetailViewerCard({
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {attachments.map((att) => {
-                const src = tauriBridge.resolveAttachmentSrc(att.relativePath);
+                const src = tauriBridge.resolveAttachmentSrc(att.relativePath, att.absolutePath);
                 return (
                   <div
                     key={att.id}
-                    className="overflow-hidden rounded-lg border border-slate-800 bg-slate-900"
+                    className="flex min-h-[120px] items-center justify-center overflow-hidden rounded-lg border border-slate-800 bg-slate-950"
                   >
                     {src ? (
                       <img
@@ -322,6 +320,7 @@ class ViewerErrorBoundary extends Component<
  */
 export function FloatingDetailViewerWindow() {
   const [payload, setPayload] = useState<FloatingViewerPayload | null>(null);
+  const [pathsReady, setPathsReady] = useState(false);
   const patchSettingsLocal = useSettingsStore((s) => s.patchSettingsLocal);
 
   useEffect(() => {
@@ -336,7 +335,14 @@ export function FloatingDetailViewerWindow() {
       setPayload(next);
     };
 
-    void tauriBridge.getFloatingViewerPayload().then(applyPayload);
+    void Promise.all([
+      tauriBridge.getAppPaths().catch(() => null),
+      tauriBridge.getFloatingViewerPayload(),
+    ]).then(([, initialPayload]) => {
+      if (!active) return;
+      setPathsReady(true);
+      applyPayload(initialPayload);
+    });
 
     let unlisten: (() => void) | undefined;
     void tauriBridge.onViewerPayloadUpdated(applyPayload).then((fn) => {
@@ -359,7 +365,7 @@ export function FloatingDetailViewerWindow() {
     };
   }, [patchSettingsLocal]);
 
-  if (!payload) {
+  if (!pathsReady || !payload) {
     return (
       <div className="flex h-screen w-screen items-center justify-center border border-slate-800 bg-slate-950 text-xs text-slate-400">
         Loading view...

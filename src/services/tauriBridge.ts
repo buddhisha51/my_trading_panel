@@ -590,7 +590,10 @@ export const tauriBridge = {
     return paths;
   },
 
-  resolveAttachmentSrc(relativePath: string | null | undefined): string | null {
+  resolveAttachmentSrc(
+    relativePath: string | null | undefined,
+    absoluteFallback?: string | null,
+  ): string | null {
     if (!relativePath) return null;
     if (relativePath.startsWith('blob:') || relativePath.startsWith('http')) {
       return relativePath;
@@ -607,7 +610,7 @@ export const tauriBridge = {
     }
     const base = (cachedAttachmentsDir ?? '').replace(/\\/g, '/').replace(/\/$/, '');
     const rel = relativePath.replace(/\\/g, '/').replace(/^\//, '');
-    const abs = base ? `${base}/${rel}` : rel;
+    const abs = base ? `${base}/${rel}` : absoluteFallback?.replace(/\\/g, '/') || rel;
     return convertFileSrc(abs);
   },
 

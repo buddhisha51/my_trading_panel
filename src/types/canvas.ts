@@ -5,6 +5,7 @@ export type CanvasTool =
   | 'rect'
   | 'fvg'
   | 'ifvg'
+  | 'bpr'
   | 'order_block'
   | 'breaker'
   | 'liquidity'
@@ -22,18 +23,18 @@ export type LiquidityTag = '$$$' | 'BSL' | 'SSL';
 export interface BaseShape {
   id: string;
   type:
-    | 'freehand'
-    | 'candle'
-    | 'rect'
-    | 'image'
-    | 'zone_box'
-    | 'liquidity_line'
-    | 'straight_line'
-    | 'channel'
-    | 'mss_arrow'
-    | 'fib_retracement'
-    | 'ote_fib'
-    | 'text_note';
+  | 'freehand'
+  | 'candle'
+  | 'rect'
+  | 'image'
+  | 'zone_box'
+  | 'liquidity_line'
+  | 'straight_line'
+  | 'channel'
+  | 'mss_arrow'
+  | 'fib_retracement'
+  | 'ote_fib'
+  | 'text_note';
   color: string;
   strokeWidth: number;
 }
@@ -101,7 +102,7 @@ export interface CandleShape extends BaseShape {
 
 export interface ZoneBoxShape extends BaseShape {
   type: 'zone_box';
-  kind: 'FVG' | 'IFVG' | 'OB' | 'BB';
+  kind: 'FVG' | 'IFVG' | 'BPR' | 'OB' | 'BB';
   x: number;
   y: number;
   width: number;
@@ -247,18 +248,18 @@ export function parseCanvasDocument(raw: string | null | undefined): CanvasDocum
     const rawBgRect = parsed.backgroundRect;
     const backgroundRect =
       rawBgRect &&
-      typeof rawBgRect.x === 'number' &&
-      typeof rawBgRect.y === 'number' &&
-      typeof rawBgRect.width === 'number' &&
-      typeof rawBgRect.height === 'number' &&
-      rawBgRect.width > 0 &&
-      rawBgRect.height > 0
+        typeof rawBgRect.x === 'number' &&
+        typeof rawBgRect.y === 'number' &&
+        typeof rawBgRect.width === 'number' &&
+        typeof rawBgRect.height === 'number' &&
+        rawBgRect.width > 0 &&
+        rawBgRect.height > 0
         ? {
-            x: rawBgRect.x,
-            y: rawBgRect.y,
-            width: rawBgRect.width,
-            height: rawBgRect.height,
-          }
+          x: rawBgRect.x,
+          y: rawBgRect.y,
+          width: rawBgRect.width,
+          height: rawBgRect.height,
+        }
         : null;
 
     return {
@@ -267,20 +268,20 @@ export function parseCanvasDocument(raw: string | null | undefined): CanvasDocum
       height: typeof parsed.height === 'number' && parsed.height > 0 ? parsed.height : 420,
       backgroundAttachmentPath:
         typeof parsed.backgroundAttachmentPath === 'string' &&
-        !parsed.backgroundAttachmentPath.startsWith('data:')
+          !parsed.backgroundAttachmentPath.startsWith('data:')
           ? parsed.backgroundAttachmentPath
           : null,
       backgroundRect,
       shapes: Array.isArray(parsed.shapes)
         ? parsed.shapes.filter(
-            (s) =>
-              !(
-                s &&
-                s.type === 'image' &&
-                typeof s.attachmentPath === 'string' &&
-                s.attachmentPath.startsWith('data:')
-              ),
-          )
+          (s) =>
+            !(
+              s &&
+              s.type === 'image' &&
+              typeof s.attachmentPath === 'string' &&
+              s.attachmentPath.startsWith('data:')
+            ),
+        )
         : [],
     };
   } catch {

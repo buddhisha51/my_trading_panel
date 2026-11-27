@@ -45,7 +45,7 @@ All widgets can be reordered (drag-and-drop or up/down arrows), toggled on/off, 
 
 1. **ICT Killzones & Macros:** Live `America/New_York` countdowns for Asian, London Open, NY AM (`07:00–10:00`), NY Indices AM (`09:30–11:00`), London Close, Silver Bullet windows, NY Midnight Open (`00:00 NY`), and customizable ICT Macro intervals.
 2. **Forex Session Clocks:** Local market hours for Sydney (`08:00–17:00`), Tokyo (`09:00–18:00`), London (`08:00–17:00`), and New York (`08:00–17:00`) with active session overlap tracking.
-3. **Daily Bias Quick-Strip:** Track `D / 4H / 15M` directional bias, PDH / PDL / Asian liquidity notes, and custom watchlist pairs.
+3. **Daily Bias Quick-Strip:** Track `D / 4H / 1H` directional bias, PDH / PDL / Asian liquidity notes, and custom watchlist pairs.
 4. **Risk & Lot Size Calculator:** Instant lot sizing, tick/pip risk math, and R-multiple calculations across Forex majors, JPY crosses, XAUUSD, and US indices with editable instrument specifications.
 5. **Quick Notes & Canvas:** TipTap rich text notes + Windows native snipping (`ms-screenclip:` & `Ctrl + V` paste) + lazy-loaded interactive Konva **ICT Drawing Canvas** with SVG card thumbnails.
 6. **Strategies & Playbooks:** Build custom trade models with rich descriptions, ICT canvas diagrams, and interactive confluence checklists that live-grade setups (`A+`, `A`, `B`, `C`).
@@ -66,7 +66,7 @@ Available inside both **Quick Notes & Canvas** and **Strategies & Playbooks**, b
 | **`Pen`** | Freehand markup |
 | **`Candle`** | Drag **up** for a bullish candle or **down** for a bearish candle with proportional wicks |
 | **`Rect`** | General shaded rectangle box |
-| **`FVG` / `IFVG`** | Fair Value Gap & Inversion FVG shaded zones |
+| **`FVG` / `IFVG` / `BPR`** | Fair Value Gap, Inversion FVG & Balanced Price Range (overlapped FVG) zones |
 | **`OB` / `BB`** | Order Block & Breaker Block shaded zones |
 | **`Liq`** | Liquidity trendline tagged `$$$`, `BSL`, or `SSL` |
 | **`H-Line` / `V-Line`** | 1-click horizontal or vertical level lines |

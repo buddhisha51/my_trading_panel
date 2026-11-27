@@ -85,21 +85,21 @@ describe('DrawingCanvas & CanvasMiniPreview', () => {
     await waitFor(() => expect(screen.getByTitle('Rectangle Box')).toBeTruthy(), {
       timeout: 5000,
     });
-    for (const label of ['Rect', 'Fib', 'H-Line', 'V-Line', 'Channel', 'MSS', 'CISD']) {
-      expect(screen.getByRole('button', { name: label })).toBeTruthy();
-    }
-    notesView.unmount();
+      for (const label of ['Rect', 'BPR', 'Fib', 'H-Line', 'V-Line', 'Channel', 'MSS', 'CISD']) {
+        expect(screen.getByRole('button', { name: label })).toBeTruthy();
+      }
+      notesView.unmount();
 
-    render(<StrategiesWidget />);
-    fireEvent.click(screen.getByRole('button', { name: /New/i }));
-    fireEvent.click(screen.getByRole('button', { name: /Diagram/i }));
-    await waitFor(() => expect(screen.getByTitle('Rectangle Box')).toBeTruthy(), {
-      timeout: 5000,
-    });
-    for (const label of ['Rect', 'Fib', 'H-Line', 'V-Line', 'Channel', 'MSS', 'CISD']) {
-      expect(screen.getByRole('button', { name: label })).toBeTruthy();
-    }
-  }, 15000);
+      render(<StrategiesWidget />);
+      fireEvent.click(screen.getByRole('button', { name: /New/i }));
+      fireEvent.click(screen.getByRole('button', { name: /Diagram/i }));
+      await waitFor(() => expect(screen.getByTitle('Rectangle Box')).toBeTruthy(), {
+        timeout: 5000,
+      });
+        for (const label of ['Rect', 'BPR', 'Fib', 'H-Line', 'V-Line', 'Channel', 'MSS', 'CISD']) {
+          expect(screen.getByRole('button', { name: label })).toBeTruthy();
+        }
+      }, 15000);
 
   it('creates horizontal MSS & CISD arrows on single click and draws Rect, Fib, H-Line, V-Line, and Channel', () => {
     let latestDoc: CanvasDocument = createEmptyCanvasDocument(560, 340);
@@ -141,9 +141,10 @@ describe('DrawingCanvas & CanvasMiniPreview', () => {
       expect(cisd.x2).toBeGreaterThan(cisd.x1);
     }
 
-    // Rect, Fib, H-Line, V-Line, Channel
+    // Rect, BPR, Fib, H-Line, V-Line, Channel
     for (const [btn, expectedType] of [
       ['Rect', 'rect'],
+      ['BPR', 'zone_box'],
       ['Fib', 'fib_retracement'],
       ['H-Line', 'straight_line'],
       ['V-Line', 'straight_line'],
@@ -155,6 +156,8 @@ describe('DrawingCanvas & CanvasMiniPreview', () => {
       fireEvent.mouseUp(stage);
       expect(latestDoc.shapes[latestDoc.shapes.length - 1].type).toBe(expectedType);
     }
+    const bprShape = latestDoc.shapes.find((s) => s.type === 'zone_box');
+    expect(bprShape?.type === 'zone_box' ? bprShape.kind : null).toBe('BPR');
 
     // Preview renders all new shape types cleanly
     const { container } = render(<CanvasMiniPreview canvasJson={JSON.stringify(latestDoc)} />);

@@ -1401,6 +1401,21 @@ export const tauriBridge = {
     await invoke('close_floating_viewer');
   },
 
+  async getFloatingViewerPinned(): Promise<boolean> {
+    if (!isTauriRuntime()) return false;
+    return invoke<boolean>('get_floating_viewer_pinned');
+  },
+
+  async setFloatingViewerPinned(pinned: boolean): Promise<boolean> {
+    if (!isTauriRuntime()) return pinned;
+    return invoke<boolean>('set_floating_viewer_pinned', { pinned });
+  },
+
+  async startFloatingViewerDrag(): Promise<void> {
+    if (!isTauriRuntime()) return;
+    await invoke('start_floating_viewer_drag');
+  },
+
   async requestViewerEdit(kind: 'note' | 'strategy', id: string): Promise<void> {
     if (!isTauriRuntime()) return;
     await invoke('request_viewer_edit', { kind, id });

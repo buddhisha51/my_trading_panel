@@ -9,11 +9,13 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_opener::OpenerExt;
 
-/// Holds the current Note/Strategy detail payload and focus-blur arming state for `"detail-viewer"`.
+/// Holds the current Note/Strategy detail payload, pin state, and drag/blur guards for `"detail-viewer"`.
 #[derive(Default)]
 pub struct ViewerState {
     pub payload_json: Mutex<Option<String>>,
     pub armed: AtomicBool,
+    pub pinned: AtomicBool,
+    pub dragging: AtomicBool,
     pub opened_at: Mutex<Option<Instant>>,
 }
 
@@ -22,7 +24,20 @@ impl ViewerState {
         self.armed.store(true, Ordering::SeqCst);
     }
 
+    pub fn is_pinned(&self) -> bool {
+        self.pinned.load(Ordering::SeqCst)
+    }
+
+    pub fn reset_window_flags(&self) {
+        self.armed.store(false, Ordering::SeqCst);
+        self.pinned.store(false, Ordering::SeqCst);
+        self.dragging.store(false, Ordering::SeqCst);
+    }
+
     pub fn should_close_on_blur(&self) -> bool {
+        if self.pinned.load(Ordering::SeqCst) || self.dragging.load(Ordering::SeqCst) {
+            return false;
+        }
         let elapsed_ok = self
             .opened_at
             .lock()
@@ -376,13 +391,18 @@ pub async fn open_floating_viewer(
 
     if let Some(existing) = app.get_webview_window("detail-viewer") {
         let _ = existing.emit("viewer-payload-updated", payload_json);
-        let _ = existing.set_size(tauri::LogicalSize::new(logical_w, logical_h));
-        let _ = existing.set_position(tauri::LogicalPosition::new(logical_x, logical_y));
+        if !state.is_pinned() {
+            let _ = existing.set_size(tauri::LogicalSize::new(logical_w, logical_h));
+            let _ = existing.set_position(tauri::LogicalPosition::new(logical_x, logical_y));
+        }
         let _ = existing.show();
         let _ = existing.set_focus();
         state.mark_focused();
         return Ok(());
     }
+
+    state.pinned.store(false, Ordering::SeqCst);
+    state.dragging.store(false, Ordering::SeqCst);
 
     let viewer = WebviewWindowBuilder::new(
         &app,
@@ -415,20 +435,68 @@ pub fn get_floating_viewer_payload(state: State<'_, ViewerState>) -> Option<Stri
 }
 
 #[tauri::command]
-pub fn close_floating_viewer(app: AppHandle) {
+pub fn get_floating_viewer_pinned(state: State<'_, ViewerState>) -> bool {
+    state.is_pinned()
+}
+
+#[tauri::command]
+pub fn set_floating_viewer_pinned(state: State<'_, ViewerState>, pinned: bool) -> bool {
+    state.pinned.store(pinned, Ordering::SeqCst);
+    pinned
+}
+
+#[tauri::command]
+pub fn start_floating_viewer_drag(
+    window: WebviewWindow,
+    app: AppHandle,
+    state: State<'_, ViewerState>,
+) -> Result<(), String> {
+    state.dragging.store(true, Ordering::SeqCst);
+    if let Err(err) = window.start_dragging() {
+        state.dragging.store(false, Ordering::SeqCst);
+        return Err(err.to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        for _ in 0..1875 {
+            if !win32_styles::is_left_mouse_down() {
+                tokio::time::sleep(Duration::from_millis(80)).await;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(16)).await;
+        }
+        let st = app.state::<ViewerState>();
+        st.dragging.store(false, Ordering::SeqCst);
+        st.mark_focused();
+    });
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = app;
+        state.dragging.store(false, Ordering::SeqCst);
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn close_floating_viewer(app: AppHandle, state: State<'_, ViewerState>) {
+    state.reset_window_flags();
     if let Some(w) = app.get_webview_window("detail-viewer") {
         let _ = w.close();
     }
 }
 
 #[tauri::command]
-pub fn request_viewer_edit(app: AppHandle, kind: String, id: String) {
+pub fn request_viewer_edit(app: AppHandle, state: State<'_, ViewerState>, kind: String, id: String) {
     if let Some(main) = app.get_webview_window("main") {
         let _ = main.emit(
             "viewer-request-edit",
             serde_json::json!({ "kind": kind, "id": id }),
         );
     }
+    state.reset_window_flags();
     if let Some(w) = app.get_webview_window("detail-viewer") {
         let _ = w.close();
     }

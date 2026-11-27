@@ -2,15 +2,17 @@ import {
   CheckSquare,
   Edit3,
   FileText,
+  GripVertical,
   Image as ImageIcon,
   Layers,
   Pin,
+  PinOff,
   Square,
   Target,
   X,
 } from 'lucide-react';
 import { DateTime } from 'luxon';
-import { Component, useEffect, useState, type ReactNode } from 'react';
+import { Component, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { tauriBridge } from '../../services/tauriBridge';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -24,6 +26,9 @@ import { RichTextViewer } from '../editor/RichTextEditor';
 
 interface DetailViewerCardProps {
   payload: FloatingViewerPayload;
+  isPinned: boolean;
+  onTogglePin: () => void;
+  onStartDrag?: (e: React.PointerEvent<HTMLElement>) => void;
   onClose: () => void;
   onEdit: (kind: 'note' | 'strategy', id: string) => void;
   draggableWindow?: boolean;
@@ -31,6 +36,9 @@ interface DetailViewerCardProps {
 
 function DetailViewerCard({
   payload,
+  isPinned,
+  onTogglePin,
+  onStartDrag,
   onClose,
   onEdit,
   draggableWindow = false,
@@ -71,15 +79,22 @@ function DetailViewerCard({
           : 'rounded-xl border border-slate-700/90'
         }`}
     >
-      {/* Header (draggable when rendered as standalone Tauri floating window) */}
+      {/* Header (draggable across screens) */}
       <header
         data-tauri-drag-region={draggableWindow ? true : undefined}
-        className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-800 bg-slate-900/95 px-4 py-2.5"
+        onPointerDown={(e) => {
+          if (e.button !== 0) return;
+          if ((e.target as HTMLElement).closest('button')) return;
+          onStartDrag?.(e);
+        }}
+        title="Drag to move floating panel across screens"
+        className="flex shrink-0 cursor-grab select-none items-center justify-between gap-3 border-b border-slate-800 bg-slate-900/95 px-3 py-2.5 active:cursor-grabbing"
       >
         <div
           data-tauri-drag-region={draggableWindow ? true : undefined}
-          className="flex min-w-0 items-center gap-2"
+          className="pointer-events-none flex min-w-0 items-center gap-2"
         >
+          <GripVertical className="h-4 w-4 shrink-0 text-slate-500" />
           {isNote ? (
             <FileText className="h-4 w-4 shrink-0 text-blue-400" />
           ) : (
@@ -97,6 +112,25 @@ function DetailViewerCard({
         <div className="flex shrink-0 items-center gap-1.5">
           <button
             type="button"
+            onClick={onTogglePin}
+            aria-pressed={isPinned}
+            aria-label={isPinned ? 'Unpin Floating View' : 'Pin Floating View'}
+            title={
+              isPinned
+                ? 'Unpin (auto-closes when clicking outside)'
+                : 'Pin open (stays open until manually closed or unpinned)'
+            }
+            className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-[11px] font-medium transition-colors ${
+              isPinned
+                ? 'border-blue-500/60 bg-blue-500/20 text-blue-300 hover:bg-blue-500/30'
+                : 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700'
+            }`}
+          >
+            {isPinned ? <Pin className="h-3 w-3" /> : <PinOff className="h-3 w-3" />}
+            {isPinned ? 'Pinned' : 'Pin'}
+          </button>
+          <button
+            type="button"
             onClick={() => onEdit(payload.kind, isNote ? payload.note.id : payload.strategy.id)}
             className="inline-flex items-center gap-1 rounded border border-slate-700 bg-slate-800 px-2.5 py-1 text-[11px] font-medium text-slate-200 hover:bg-slate-700"
             title={isNote ? 'Edit this note' : 'Edit this playbook'}
@@ -108,7 +142,7 @@ function DetailViewerCard({
             type="button"
             onClick={onClose}
             aria-label="Close Floating View"
-            title="Close (Esc or click outside)"
+            title={isPinned ? 'Close Floating View' : 'Close (Esc or click outside)'}
             className="rounded p-1 text-slate-400 hover:bg-slate-800 hover:text-white"
           >
             <X className="h-4 w-4" />
@@ -260,7 +294,11 @@ function DetailViewerCard({
 
       {/* Footer Hint */}
       <footer className="flex shrink-0 items-center justify-between border-t border-slate-800 bg-slate-900/70 px-4 py-1.5 text-[10px] text-slate-500">
-        <span>Click outside this window or press Esc to close</span>
+        <span>
+          {isPinned
+            ? 'Pinned open — drag header across screens • click Pin or × to close'
+            : 'Drag header to move • click outside or press Esc to close'}
+        </span>
         <span>{hasCanvas ? 'Canvas attached' : ''}</span>
       </footer>
 
@@ -321,7 +359,13 @@ class ViewerErrorBoundary extends Component<
 export function FloatingDetailViewerWindow() {
   const [payload, setPayload] = useState<FloatingViewerPayload | null>(null);
   const [pathsReady, setPathsReady] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const pinnedRef = useRef(false);
   const patchSettingsLocal = useSettingsStore((s) => s.patchSettingsLocal);
+
+  useEffect(() => {
+    pinnedRef.current = pinned;
+  }, [pinned]);
 
   useEffect(() => {
     let active = true;
@@ -338,8 +382,11 @@ export function FloatingDetailViewerWindow() {
     void Promise.all([
       tauriBridge.getAppPaths().catch(() => null),
       tauriBridge.getFloatingViewerPayload(),
-    ]).then(([, initialPayload]) => {
+      tauriBridge.getFloatingViewerPinned().catch(() => false),
+    ]).then(([, initialPayload, initialPinned]) => {
       if (!active) return;
+      setPinned(Boolean(initialPinned));
+      pinnedRef.current = Boolean(initialPinned);
       setPathsReady(true);
       applyPayload(initialPayload);
     });
@@ -351,7 +398,7 @@ export function FloatingDetailViewerWindow() {
     });
 
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && !pinnedRef.current) {
         e.preventDefault();
         void tauriBridge.closeFloatingViewer();
       }
@@ -364,6 +411,16 @@ export function FloatingDetailViewerWindow() {
       window.removeEventListener('keydown', onKeyDown);
     };
   }, [patchSettingsLocal]);
+
+  const handleTogglePin = () => {
+    const next = !pinned;
+    setPinned(next);
+    pinnedRef.current = next;
+    void tauriBridge.setFloatingViewerPinned(next).then((res) => {
+      setPinned(res);
+      pinnedRef.current = res;
+    });
+  };
 
   if (!pathsReady || !payload) {
     return (
@@ -378,6 +435,9 @@ export function FloatingDetailViewerWindow() {
       <div className="h-screen w-screen bg-slate-950">
         <DetailViewerCard
           payload={payload}
+          isPinned={pinned}
+          onTogglePin={handleTogglePin}
+          onStartDrag={() => void tauriBridge.startFloatingViewerDrag()}
           draggableWindow
           onClose={() => void tauriBridge.closeFloatingViewer()}
           onEdit={(kind, id) => void tauriBridge.requestViewerEdit(kind, id)}
@@ -389,38 +449,84 @@ export function FloatingDetailViewerWindow() {
 
 /**
  * Browser preview & Vitest fallback modal rendered via portal when `!isTauriRuntime()`,
- * supporting off-click backdrop close and Escape key close.
+ * supporting Pin, header dragging, off-click backdrop close (when unpinned), and Escape close.
  */
 export function PreviewFloatingViewerPortal({ kind }: { kind: 'note' | 'strategy' }) {
   const previewPayload = useViewerStore((s) => s.previewPayload);
+  const previewPinned = useViewerStore((s) => s.previewPinned);
+  const setPreviewPinned = useViewerStore((s) => s.setPreviewPinned);
   const closePreviewViewer = useViewerStore((s) => s.closePreviewViewer);
   const triggerEditRequest = useViewerStore((s) => s.triggerEditRequest);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const dragCleanupRef = useRef<(() => void) | null>(null);
 
   const visible = Boolean(previewPayload && previewPayload.kind === kind);
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible) {
+      setDragOffset({ x: 0, y: 0 });
+      return;
+    }
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && !previewPinned) {
         e.preventDefault();
         closePreviewViewer();
       }
     };
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [closePreviewViewer, visible]);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      dragCleanupRef.current?.();
+    };
+  }, [closePreviewViewer, previewPinned, visible]);
+
+  const handleStartPreviewDrag = (e: React.PointerEvent<HTMLElement>) => {
+    e.preventDefault();
+    dragCleanupRef.current?.();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const origX = dragOffset.x;
+    const origY = dragOffset.y;
+
+    const onMove = (mv: PointerEvent) => {
+      setDragOffset({
+        x: origX + (mv.clientX - startX),
+        y: origY + (mv.clientY - startY),
+      });
+    };
+    const cleanup = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', cleanup);
+      window.removeEventListener('pointercancel', cleanup);
+      dragCleanupRef.current = null;
+    };
+    dragCleanupRef.current = cleanup;
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', cleanup);
+    window.addEventListener('pointercancel', cleanup);
+  };
 
   if (!visible || !previewPayload) return null;
 
   return createPortal(
     <div
       data-testid="floating-viewer-backdrop"
-      onMouseDown={() => closePreviewViewer()}
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-xs"
+      onMouseDown={() => {
+        if (!previewPinned) closePreviewViewer();
+      }}
+      className={`fixed inset-0 z-[100] flex items-center justify-center p-4 ${
+        previewPinned ? 'pointer-events-none bg-transparent' : 'bg-slate-950/70 backdrop-blur-xs'
+      }`}
     >
-      <div className="h-[min(86vh,620px)] w-[min(92vw,740px)]">
+      <div
+        style={{ transform: `translate3d(${dragOffset.x}px, ${dragOffset.y}px, 0)` }}
+        className="pointer-events-auto h-[min(86vh,620px)] w-[min(92vw,740px)]"
+      >
         <DetailViewerCard
           payload={previewPayload}
+          isPinned={previewPinned}
+          onTogglePin={() => setPreviewPinned(!previewPinned)}
+          onStartDrag={handleStartPreviewDrag}
           onClose={closePreviewViewer}
           onEdit={(k, id) => triggerEditRequest(k, id)}
         />

@@ -4,8 +4,10 @@ import type { FloatingViewerPayload, ViewerEditRequest } from '../types/viewer';
 
 interface ViewerStoreState {
   previewPayload: FloatingViewerPayload | null;
+  previewPinned: boolean;
   editRequest: ViewerEditRequest | null;
   openViewer: (payload: FloatingViewerPayload) => Promise<void>;
+  setPreviewPinned: (pinned: boolean) => void;
   closePreviewViewer: () => void;
   triggerEditRequest: (kind: 'note' | 'strategy', id: string) => void;
   clearEditRequest: () => void;
@@ -13,6 +15,7 @@ interface ViewerStoreState {
 
 export const useViewerStore = create<ViewerStoreState>((set) => ({
   previewPayload: null,
+  previewPinned: false,
   editRequest: null,
 
   openViewer: async (payload) => {
@@ -22,11 +25,14 @@ export const useViewerStore = create<ViewerStoreState>((set) => ({
     }
   },
 
-  closePreviewViewer: () => set({ previewPayload: null }),
+  setPreviewPinned: (pinned) => set({ previewPinned: pinned }),
+
+  closePreviewViewer: () => set({ previewPayload: null, previewPinned: false }),
 
   triggerEditRequest: (kind, id) =>
     set({
       previewPayload: null,
+      previewPinned: false,
       editRequest: { kind, id, nonce: Date.now() },
     }),
 

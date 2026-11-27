@@ -34,6 +34,7 @@ describe('Milestone 3 Widgets', () => {
     });
     useViewerStore.setState({
       previewPayload: null,
+      previewPinned: false,
       editRequest: null,
     });
   });
@@ -255,6 +256,51 @@ describe('Milestone 3 Widgets', () => {
     expect(screen.getByText(/Attached Screenshots \(1\)/i)).toBeTruthy();
 
     fireEvent.mouseDown(screen.getByTestId('floating-viewer-backdrop'));
+    expect(screen.queryByTestId('floating-detail-viewer')).toBeNull();
+  });
+
+  it('keeps pinned floating viewer open on off-click and Esc until unpinned or manually closed', async () => {
+    await useNotesStore.getState().saveNote({
+      id: 'nt_pin_1',
+      title: 'Pinned Setup Note',
+      bodyJson: EMPTY_TIPTAP_DOC,
+      bodyText: 'Stay visible across charts',
+      canvasJson: null,
+      tags: ['ny-am'],
+      pair: 'EURUSD',
+      session: 'NY AM',
+      isPinned: false,
+    });
+
+    render(<QuickNotesWidget />);
+    await waitFor(() => expect(screen.getByText('Pinned Setup Note')).toBeTruthy());
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('Pinned Setup Note'));
+    });
+    expect(await screen.findByTestId('floating-detail-viewer')).toBeTruthy();
+
+    // Pin the floating viewer open
+    fireEvent.click(screen.getByRole('button', { name: 'Pin Floating View' }));
+    expect(screen.getByRole('button', { name: 'Unpin Floating View' })).toBeTruthy();
+
+    // Off-click & Esc must NOT close while pinned
+    fireEvent.mouseDown(screen.getByTestId('floating-viewer-backdrop'));
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.getByTestId('floating-detail-viewer')).toBeTruthy();
+
+    // Unpinning restores auto-close on off-click
+    fireEvent.click(screen.getByRole('button', { name: 'Unpin Floating View' }));
+    fireEvent.mouseDown(screen.getByTestId('floating-viewer-backdrop'));
+    expect(screen.queryByTestId('floating-detail-viewer')).toBeNull();
+
+    // Re-open, pin again, and close manually via X button
+    await act(async () => {
+      fireEvent.click(screen.getByText('Pinned Setup Note'));
+    });
+    await screen.findByTestId('floating-detail-viewer');
+    fireEvent.click(screen.getByRole('button', { name: 'Pin Floating View' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close Floating View' }));
     expect(screen.queryByTestId('floating-detail-viewer')).toBeNull();
   });
 });

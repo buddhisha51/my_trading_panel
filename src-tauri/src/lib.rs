@@ -197,6 +197,9 @@ pub fn run() {
                             let _ = window.close();
                         }
                     }
+                    WindowEvent::Destroyed => {
+                        state.reset_window_flags();
+                    }
                     _ => {}
                 }
                 return;
@@ -220,6 +223,9 @@ pub fn run() {
             commands::window_mgmt::quit_app,
             commands::window_mgmt::open_floating_viewer,
             commands::window_mgmt::get_floating_viewer_payload,
+            commands::window_mgmt::get_floating_viewer_pinned,
+            commands::window_mgmt::set_floating_viewer_pinned,
+            commands::window_mgmt::start_floating_viewer_drag,
             commands::window_mgmt::close_floating_viewer,
             commands::window_mgmt::request_viewer_edit,
             commands::db_ops::get_all_settings,

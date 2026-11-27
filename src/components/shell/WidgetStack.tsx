@@ -61,6 +61,8 @@ export function WidgetStack({ now, layout }: WidgetStackProps) {
   const reorderWidgets = useSettingsStore((s) => s.reorderWidgets);
 
   const entriesByPair = useDailyBiasStore((s) => s.entriesByPair);
+  const weeklyByPair = useDailyBiasStore((s) => s.weeklyByPair);
+  const monthlyByPair = useDailyBiasStore((s) => s.monthlyByPair);
   const notesCount = useNotesStore((s) => s.notes.length);
   const strategiesCount = useStrategiesStore((s) => s.strategies.length);
   const ongoingCount = useJournalStore((s) => s.ongoingTrades.length);
@@ -189,6 +191,8 @@ export function WidgetStack({ now, layout }: WidgetStackProps) {
       const b = getBiasSummaryBadge(
         entriesByPair[settings.selectedBiasPair],
         settings.selectedBiasPair,
+        weeklyByPair[settings.selectedBiasPair]?.biasDaily ?? null,
+        monthlyByPair[settings.selectedBiasPair]?.biasDaily ?? null,
       );
       return (
         <span

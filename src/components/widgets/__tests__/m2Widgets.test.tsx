@@ -21,6 +21,8 @@ describe('Milestone 2 Widgets', () => {
     useDailyBiasStore.setState({
       selectedDate: '2026-07-15',
       entriesByPair: {},
+      weeklyByPair: {},
+      monthlyByPair: {},
       loading: false,
       savingPair: null,
     });
@@ -52,17 +54,26 @@ describe('Milestone 2 Widgets', () => {
   it('persists directional bias clicks inside DailyBiasWidget', async () => {
     render(<DailyBiasWidget />);
 
+    expect(screen.getByText('MN')).toBeTruthy();
+    expect(screen.getByText('W1')).toBeTruthy();
     expect(screen.getByText('D1')).toBeTruthy();
     expect(screen.getByText('H4')).toBeTruthy();
     expect(screen.getByText('H1')).toBeTruthy();
     expect(screen.queryByText('M15')).toBeNull();
 
-    const bullButtons = screen.getAllByText('Bull');
     await act(async () => {
-      fireEvent.click(bullButtons[0]); // D1 Bullish
+      fireEvent.click(screen.getByRole('button', { name: 'MN Bull' }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'W1 Bear' }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'D1 Bull' }));
     });
 
     await waitFor(() => {
+      expect(useDailyBiasStore.getState().monthlyByPair.EURUSD?.biasDaily).toBe('bullish');
+      expect(useDailyBiasStore.getState().weeklyByPair.EURUSD?.biasDaily).toBe('bearish');
       expect(useDailyBiasStore.getState().entriesByPair.EURUSD?.biasDaily).toBe('bullish');
     });
   });

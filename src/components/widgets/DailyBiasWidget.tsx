@@ -10,7 +10,11 @@ import {
 } from 'lucide-react';
 import { DateTime } from 'luxon';
 import { useEffect, useState } from 'react';
-import { getTodayNyDateString, useDailyBiasStore } from '../../stores/dailyBiasStore';
+import {
+  formatBiasPeriodMeta,
+  getTodayNyDateString,
+  useDailyBiasStore,
+} from '../../stores/dailyBiasStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import type { BiasDirection, DailyBiasEntry } from '../../types/dailyBias';
 
@@ -24,22 +28,36 @@ function parseNullableNum(raw: string): number | null {
 export function getBiasSummaryBadge(
   entry: DailyBiasEntry | undefined,
   pair: string,
+  weeklyBias: BiasDirection | null = null,
+  monthlyBias: BiasDirection | null = null,
 ): { text: string; color: string } {
-  if (!entry) return { text: pair, color: '#64748b' };
-  const dirs = [entry.biasDaily, entry.bias4h, entry.bias15m].filter(
+  const dirs = [
+    monthlyBias,
+    weeklyBias,
+    entry?.biasDaily ?? null,
+    entry?.bias4h ?? null,
+    entry?.bias15m ?? null,
+  ];
+  const nonNull = dirs.filter(Boolean) as BiasDirection[];
+  if (nonNull.length === 0) return { text: pair, color: '#64748b' };
+
+  const dailyDirs = [entry?.biasDaily, entry?.bias4h, entry?.bias15m].filter(
     Boolean,
   ) as BiasDirection[];
-  if (dirs.length === 0) return { text: pair, color: '#64748b' };
-
-  const allBull = dirs.length >= 2 && dirs.every((d) => d === 'bullish');
-  const allBear = dirs.length >= 2 && dirs.every((d) => d === 'bearish');
+  const allBull = nonNull.length >= 2 && nonNull.every((d) => d === 'bullish');
+  const allBear = nonNull.length >= 2 && nonNull.every((d) => d === 'bearish');
   if (allBull) return { text: `${pair} BULL`, color: '#10b981' };
   if (allBear) return { text: `${pair} BEAR`, color: '#ef4444' };
 
-  const shortTag = (d: BiasDirection | null) =>
+  const shortTag = (d: BiasDirection | null | undefined) =>
     d === 'bullish' ? 'B' : d === 'bearish' ? 'S' : d === 'range' ? 'R' : '–';
+  const badgeDirs =
+    monthlyBias || weeklyBias ? dirs : [entry?.biasDaily, entry?.bias4h, entry?.bias15m];
+  if (dailyDirs.length === 0 && !monthlyBias && !weeklyBias) {
+    return { text: pair, color: '#64748b' };
+  }
   return {
-    text: `${pair} ${shortTag(entry.biasDaily)}/${shortTag(entry.bias4h)}/${shortTag(entry.bias15m)}`,
+    text: `${pair} ${badgeDirs.map(shortTag).join('/')}`,
     color: '#94a3b8',
   };
 }
@@ -51,16 +69,22 @@ export function DailyBiasWidget() {
 
   const selectedDate = useDailyBiasStore((s) => s.selectedDate);
   const entriesByPair = useDailyBiasStore((s) => s.entriesByPair);
+  const weeklyByPair = useDailyBiasStore((s) => s.weeklyByPair);
+  const monthlyByPair = useDailyBiasStore((s) => s.monthlyByPair);
   const savingPair = useDailyBiasStore((s) => s.savingPair);
   const loadDate = useDailyBiasStore((s) => s.loadDate);
   const setDate = useDailyBiasStore((s) => s.setDate);
   const upsertBias = useDailyBiasStore((s) => s.upsertBias);
+  const upsertPeriodBias = useDailyBiasStore((s) => s.upsertPeriodBias);
   const clearBias = useDailyBiasStore((s) => s.clearBias);
 
   const [addingPair, setAddingPair] = useState(false);
   const [newPairText, setNewPairText] = useState('');
 
   const entry = entriesByPair[selectedPair];
+  const weeklyBias = weeklyByPair[selectedPair]?.biasDaily ?? null;
+  const monthlyBias = monthlyByPair[selectedPair]?.biasDaily ?? null;
+  const periodMeta = formatBiasPeriodMeta(selectedDate);
 
   const [pdhDraft, setPdhDraft] = useState('');
   const [pdlDraft, setPdlDraft] = useState('');
@@ -133,6 +157,12 @@ export function DailyBiasWidget() {
     void commitUpsert({ [tf]: next });
   };
 
+  const togglePeriodBias = (scope: 'monthly' | 'weekly', dir: BiasDirection) => {
+    const current = scope === 'monthly' ? monthlyBias : weeklyBias;
+    const next = current === dir ? null : dir;
+    void upsertPeriodBias(scope, selectedPair, next);
+  };
+
   const shiftDate = (days: number) => {
     const parsed = DateTime.fromISO(selectedDate);
     if (!parsed.isValid) return;
@@ -164,6 +194,16 @@ export function DailyBiasWidget() {
       selectedBiasPair: nextSelected,
     });
   };
+
+  const htfRows: Array<{
+    scope: 'monthly' | 'weekly';
+    label: string;
+    hint: string;
+    value: BiasDirection | null;
+  }> = [
+    { scope: 'monthly', label: 'MN', hint: periodMeta.monthLabel, value: monthlyBias },
+    { scope: 'weekly', label: 'W1', hint: periodMeta.weekRangeLabel, value: weeklyBias },
+  ];
 
   const tfRows: Array<{
     key: 'biasDaily' | 'bias4h' | 'bias15m';
@@ -299,8 +339,66 @@ export function DailyBiasWidget() {
         )}
       </div>
 
-      {/* D1 / H4 / H1 Directional Bias Matrix */}
+      {/* MN / W1 (Period-Scoped) + D1 / H4 / H1 (Daily) Directional Bias Matrix */}
       <div className="space-y-1 rounded-md border border-slate-800 bg-slate-950/60 p-2">
+        <div className="flex items-center justify-between text-[9px] text-slate-500 pb-0.5">
+          <span>HTF Scope: {periodMeta.monthLabel}</span>
+          <span className="font-mono">{periodMeta.weekRangeLabel}</span>
+        </div>
+        {htfRows.map((row) => (
+          <div key={row.scope} className="flex items-center justify-between gap-2">
+            <span
+              className="w-7 font-mono text-[10px] font-semibold text-blue-300/90"
+              title={`${row.label} bias (${row.hint})`}
+            >
+              {row.label}
+            </span>
+            <div className="grid flex-1 grid-cols-3 gap-1">
+              <button
+                type="button"
+                aria-label={`${row.label} Bull`}
+                onClick={() => togglePeriodBias(row.scope, 'bullish')}
+                className={`inline-flex items-center justify-center gap-1 rounded border py-1 text-[10px] font-medium transition-colors ${
+                  row.value === 'bullish'
+                    ? 'border-emerald-500/70 bg-emerald-500/20 text-emerald-300'
+                    : 'border-slate-800 bg-slate-900/70 text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                <TrendingUp className="h-3 w-3" />
+                Bull
+              </button>
+              <button
+                type="button"
+                aria-label={`${row.label} Bear`}
+                onClick={() => togglePeriodBias(row.scope, 'bearish')}
+                className={`inline-flex items-center justify-center gap-1 rounded border py-1 text-[10px] font-medium transition-colors ${
+                  row.value === 'bearish'
+                    ? 'border-rose-500/70 bg-rose-500/20 text-rose-300'
+                    : 'border-slate-800 bg-slate-900/70 text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                <TrendingDown className="h-3 w-3" />
+                Bear
+              </button>
+              <button
+                type="button"
+                aria-label={`${row.label} Range`}
+                onClick={() => togglePeriodBias(row.scope, 'range')}
+                className={`inline-flex items-center justify-center gap-1 rounded border py-1 text-[10px] font-medium transition-colors ${
+                  row.value === 'range'
+                    ? 'border-amber-500/70 bg-amber-500/20 text-amber-300'
+                    : 'border-slate-800 bg-slate-900/70 text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                <Minus className="h-3 w-3" />
+                Range
+              </button>
+            </div>
+          </div>
+        ))}
+
+        <div className="my-1 border-t border-slate-800/80 pt-1" />
+
         {tfRows.map((row) => (
           <div key={row.key} className="flex items-center justify-between gap-2">
             <span className="w-7 font-mono text-[10px] font-semibold text-slate-400">
@@ -309,6 +407,7 @@ export function DailyBiasWidget() {
             <div className="grid flex-1 grid-cols-3 gap-1">
               <button
                 type="button"
+                aria-label={`${row.label} Bull`}
                 onClick={() => toggleTfBias(row.key, 'bullish')}
                 className={`inline-flex items-center justify-center gap-1 rounded border py-1 text-[10px] font-medium transition-colors ${
                   row.value === 'bullish'

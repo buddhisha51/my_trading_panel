@@ -51,6 +51,29 @@ pub struct UpsertDailyBiasInput {
     pub dol_notes: Option<String>,
 }
 
+fn is_valid_bias_date_key(key: &str) -> bool {
+    let is_ymd = |s: &str| -> bool {
+        let b = s.as_bytes();
+        b.len() == 10
+            && b[4] == b'-'
+            && b[7] == b'-'
+            && b.iter()
+                .enumerate()
+                .all(|(i, c)| i == 4 || i == 7 || c.is_ascii_digit())
+    };
+    let is_ym = |s: &str| -> bool {
+        let b = s.as_bytes();
+        b.len() == 7
+            && b[4] == b'-'
+            && b.iter()
+                .enumerate()
+                .all(|(i, c)| i == 4 || c.is_ascii_digit())
+    };
+    is_ymd(key)
+        || key.strip_prefix("W:").is_some_and(is_ymd)
+        || key.strip_prefix("M:").is_some_and(is_ym)
+}
+
 fn validate_bias_opt(val: &Option<String>) -> Result<(), String> {
     if let Some(ref b) = val {
         match b.as_str() {
@@ -122,7 +145,7 @@ pub async fn list_recent_daily_bias(
     let norm_pair = pair.trim().to_uppercase();
     let lim = limit.unwrap_or(10).clamp(1, 90);
     let rows = sqlx::query(
-        "SELECT id, pair, date, bias_daily, bias_4h, bias_15m, pdh, pdl, asian_high, asian_low, dol_notes, created_at, updated_at FROM daily_bias WHERE pair = ?1 ORDER BY date DESC LIMIT ?2",
+        "SELECT id, pair, date, bias_daily, bias_4h, bias_15m, pdh, pdl, asian_high, asian_low, dol_notes, created_at, updated_at FROM daily_bias WHERE pair = ?1 AND date NOT LIKE 'W:%' AND date NOT LIKE 'M:%' ORDER BY date DESC LIMIT ?2",
     )
     .bind(norm_pair)
     .bind(lim)
@@ -143,8 +166,10 @@ pub async fn upsert_daily_bias(
         return Err("Pair symbol cannot be empty".to_string());
     }
     let date = input.date.trim().to_string();
-    if date.len() != 10 {
-        return Err(format!("Expected YYYY-MM-DD date, got: {date}"));
+    if !is_valid_bias_date_key(&date) {
+        return Err(format!(
+            "Expected YYYY-MM-DD, W:YYYY-MM-DD, or M:YYYY-MM date key, got: {date}"
+        ));
     }
 
     validate_bias_opt(&input.bias_daily)?;
@@ -208,4 +233,19 @@ pub async fn delete_daily_bias(
         .await
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_valid_bias_date_key;
+
+    #[test]
+    fn accepts_daily_weekly_and_monthly_bias_keys() {
+        assert!(is_valid_bias_date_key("2026-11-27"));
+        assert!(is_valid_bias_date_key("W:2026-11-23"));
+        assert!(is_valid_bias_date_key("M:2026-11"));
+        assert!(!is_valid_bias_date_key("2026-11"));
+        assert!(!is_valid_bias_date_key("W:2026-11"));
+        assert!(!is_valid_bias_date_key("M:2026-11-27"));
+    }
 }

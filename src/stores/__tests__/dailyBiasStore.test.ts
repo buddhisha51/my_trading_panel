@@ -7,6 +7,8 @@ describe('dailyBiasStore', () => {
     useDailyBiasStore.setState({
       selectedDate: '2026-07-15',
       entriesByPair: {},
+      weeklyByPair: {},
+      monthlyByPair: {},
       loading: false,
       savingPair: null,
     });
@@ -54,5 +56,28 @@ describe('dailyBiasStore', () => {
 
     await useDailyBiasStore.getState().clearBias('EURUSD', '2026-07-15');
     expect(useDailyBiasStore.getState().entriesByPair.EURUSD).toBeUndefined();
+  });
+
+  it('scopes Monthly and Weekly bias cleanly across date selections and month/week boundaries', async () => {
+    // 2026-11-27 (Fri): Week of Nov 23–29, Month Nov 2026
+    await useDailyBiasStore.getState().loadDate('2026-11-27');
+    await useDailyBiasStore.getState().upsertPeriodBias('monthly', 'EURUSD', 'bullish');
+    await useDailyBiasStore.getState().upsertPeriodBias('weekly', 'EURUSD', 'bearish');
+
+    // Another day in the same week & month (2026-11-25 Wed) keeps both MN and W1
+    await useDailyBiasStore.getState().setDate('2026-11-25');
+    expect(useDailyBiasStore.getState().monthlyByPair.EURUSD?.biasDaily).toBe('bullish');
+    expect(useDailyBiasStore.getState().weeklyByPair.EURUSD?.biasDaily).toBe('bearish');
+
+    // Next Monday (2026-11-30) starts a new week (W1 cleared), but stays in Nov 2026 (MN preserved!)
+    await useDailyBiasStore.getState().setDate('2026-11-30');
+    expect(useDailyBiasStore.getState().monthlyByPair.EURUSD?.biasDaily).toBe('bullish');
+    expect(useDailyBiasStore.getState().weeklyByPair.EURUSD).toBeUndefined();
+
+    // Set W1 on 2026-11-30, then move to 2026-12-01 (Tue): same week preserved, new month Dec 2026!
+    await useDailyBiasStore.getState().upsertPeriodBias('weekly', 'EURUSD', 'range');
+    await useDailyBiasStore.getState().setDate('2026-12-01');
+    expect(useDailyBiasStore.getState().weeklyByPair.EURUSD?.biasDaily).toBe('range');
+    expect(useDailyBiasStore.getState().monthlyByPair.EURUSD).toBeUndefined();
   });
 });

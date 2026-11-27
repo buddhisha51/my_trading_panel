@@ -94,7 +94,8 @@ describe('Milestone 4 Widgets', () => {
     expect(screen.getByText('-$350.00')).toBeTruthy();
   });
 
-  it('displays active OngoingTradesWidget entry and opens close-to-journal sheet', async () => {
+  it('displays active OngoingTradesWidget entry, entry time, running duration, and opens close-to-journal sheet', async () => {
+    const openedAt = new Date(Date.now() - (2 * 3600 + 15 * 60) * 1000).toISOString();
     await useJournalStore.getState().openOngoingTrade({
       pair: 'XAUUSD',
       direction: 'long',
@@ -104,10 +105,13 @@ describe('Milestone 4 Widgets', () => {
       lotSize: 0.25,
       notes: 'OB bounce',
       strategyId: null,
+      openedAt,
     });
 
     render(<OngoingTradesWidget />);
     await waitFor(() => expect(screen.getByText('XAUUSD')).toBeTruthy());
+    expect(screen.getByText('Entry:')).toBeTruthy();
+    expect(screen.getByText(/Ran:\s*2h 15m/i)).toBeTruthy();
 
     await act(async () => {
       fireEvent.click(screen.getByText('Close'));

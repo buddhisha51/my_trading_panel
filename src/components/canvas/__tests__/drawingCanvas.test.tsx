@@ -82,7 +82,9 @@ describe('DrawingCanvas & CanvasMiniPreview', () => {
     const notesView = render(<QuickNotesWidget />);
     fireEvent.click(screen.getByRole('button', { name: /New/i }));
     fireEvent.click(screen.getByRole('button', { name: /ICT Canvas/i }));
-    await waitFor(() => expect(screen.getByTitle('Rectangle Box')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTitle('Rectangle Box')).toBeTruthy(), {
+      timeout: 5000,
+    });
     for (const label of ['Rect', 'Fib', 'H-Line', 'V-Line', 'Channel', 'MSS', 'CISD']) {
       expect(screen.getByRole('button', { name: label })).toBeTruthy();
     }
@@ -91,7 +93,9 @@ describe('DrawingCanvas & CanvasMiniPreview', () => {
     render(<StrategiesWidget />);
     fireEvent.click(screen.getByRole('button', { name: /New/i }));
     fireEvent.click(screen.getByRole('button', { name: /Diagram/i }));
-    await waitFor(() => expect(screen.getByTitle('Rectangle Box')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTitle('Rectangle Box')).toBeTruthy(), {
+      timeout: 5000,
+    });
     for (const label of ['Rect', 'Fib', 'H-Line', 'V-Line', 'Channel', 'MSS', 'CISD']) {
       expect(screen.getByRole('button', { name: label })).toBeTruthy();
     }

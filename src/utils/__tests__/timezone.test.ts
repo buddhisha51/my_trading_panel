@@ -1,6 +1,12 @@
 import { DateTime } from 'luxon';
 import { describe, expect, it } from 'vitest';
-import { formatZoneClock, getStatusIndicatorLight, NY_TIMEZONE } from '../timezone';
+import {
+  formatElapsedDuration,
+  formatEntryTimestamp,
+  formatZoneClock,
+  getStatusIndicatorLight,
+  NY_TIMEZONE,
+} from '../timezone';
 
 describe('timezone utilities', () => {
   it('formats 24h and 12h zone clocks properly', () => {
@@ -22,5 +28,17 @@ describe('timezone utilities', () => {
     const closed = getStatusIndicatorLight(saturday, 'killzone');
     expect(closed.isActive).toBe(false);
     expect(closed.label).toContain('Closed');
+  });
+
+  it('formats trade entry timestamps and elapsed running durations from ISO and SQLite UTC', () => {
+    const now = DateTime.fromISO('2026-11-27T14:45:30Z', { zone: 'utc' });
+    expect(formatElapsedDuration('2026-11-27T14:45:05Z', now)).toBe('25s');
+    expect(formatElapsedDuration('2026-11-27 14:31:08', now)).toBe('14m 22s');
+    expect(formatElapsedDuration('2026-11-27T12:27:30Z', now)).toBe('2h 18m');
+    expect(formatElapsedDuration('2026-11-26T10:33:30Z', now)).toBe('1d 4h 12m');
+
+    const entry = formatEntryTimestamp('2026-11-27 14:30:00', NY_TIMEZONE, '12h', now);
+    expect(entry.short).toBe('09:30 AM');
+    expect(entry.full).toBe('Nov 27, 09:30:00 AM');
   });
 });

@@ -1,4 +1,5 @@
-import { CheckCircle2, Plus, Trash2, TrendingDown, TrendingUp, X } from 'lucide-react';
+import { CheckCircle2, Clock, Plus, Trash2, TrendingDown, TrendingUp, X } from 'lucide-react';
+import { DateTime } from 'luxon';
 import { useEffect, useState } from 'react';
 import { useJournalStore } from '../../stores/journalStore';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -11,6 +12,11 @@ import type {
 } from '../../types/journal';
 import { normalizeTradePnl, normalizeTradeR } from '../../utils/drawdownEngine';
 import { evaluateSetupChecklist } from '../../utils/strategyGrade';
+import {
+  formatElapsedDuration,
+  formatEntryTimestamp,
+  toZoneDateTimeLocalInput,
+} from '../../utils/timezone';
 
 const STATUS_BADGE: Record<OngoingStatus, { label: string; cls: string }> = {
   running: { label: 'Running', cls: 'bg-blue-500/20 text-blue-300 border-blue-500/40' },
@@ -23,6 +29,8 @@ const SESSION_OPTS = ['', 'Asian', 'London Open', 'NY AM', 'London Close', 'NY P
 
 export function OngoingTradesWidget() {
   const watchlistPairs = useSettingsStore((s) => s.settings.watchlistPairs);
+  const displayTimezone = useSettingsStore((s) => s.settings.displayTimezone);
+  const timeFormat = useSettingsStore((s) => s.settings.timeFormat);
 
   const ongoingTrades = useJournalStore((s) => s.ongoingTrades);
   const saving = useJournalStore((s) => s.saving);
@@ -36,6 +44,7 @@ export function OngoingTradesWidget() {
   const checkedRuleIdsByStrategy = useStrategiesStore((s) => s.checkedRuleIdsByStrategy);
   const loadStrategies = useStrategiesStore((s) => s.loadStrategies);
 
+  const [now, setNow] = useState(() => DateTime.utc());
   const [showAddForm, setShowAddForm] = useState(false);
   const [pair, setPair] = useState(watchlistPairs[0] || 'EURUSD');
   const [direction, setDirection] = useState<TradeDirection>('long');
@@ -43,6 +52,9 @@ export function OngoingTradesWidget() {
   const [stopLoss, setStopLoss] = useState('');
   const [takeProfit, setTakeProfit] = useState('');
   const [lotSize, setLotSize] = useState('0.50');
+  const [entryTimeInput, setEntryTimeInput] = useState(() =>
+    toZoneDateTimeLocalInput(DateTime.utc(), displayTimezone),
+  );
   const [strategyId, setStrategyId] = useState('');
   const [notes, setNotes] = useState('');
 
@@ -58,10 +70,27 @@ export function OngoingTradesWidget() {
     void loadStrategies();
   }, [hydrateJournal, loadStrategies]);
 
+  useEffect(() => {
+    if (ongoingTrades.length === 0) return;
+    setNow(DateTime.utc());
+    const id = window.setInterval(() => setNow(DateTime.utc()), 1000);
+    return () => window.clearInterval(id);
+  }, [ongoingTrades.length]);
+
   const handleOpenTrade = async (e: React.FormEvent) => {
     e.preventDefault();
     const entry = Number(entryPrice);
     if (!Number.isFinite(entry) || entry <= 0) return;
+
+    const parsedEntry = entryTimeInput.trim()
+      ? DateTime.fromFormat(entryTimeInput.trim(), "yyyy-MM-dd'T'HH:mm", {
+          zone: displayTimezone,
+        })
+      : null;
+    const openedAtIso =
+      parsedEntry && parsedEntry.isValid
+        ? (parsedEntry.toUTC().toISO() ?? new Date().toISOString())
+        : new Date().toISOString();
 
     await openOngoingTrade({
       pair,
@@ -73,11 +102,13 @@ export function OngoingTradesWidget() {
       status: 'running',
       strategyId: strategyId || null,
       notes: notes.trim() || null,
+      openedAt: openedAtIso,
     });
 
     setEntryPrice('');
     setStopLoss('');
     setTakeProfit('');
+    setEntryTimeInput(toZoneDateTimeLocalInput(DateTime.utc(), displayTimezone));
     setNotes('');
     setShowAddForm(false);
   };
@@ -141,7 +172,15 @@ export function OngoingTradesWidget() {
         </span>
         <button
           type="button"
-          onClick={() => setShowAddForm((v) => !v)}
+          onClick={() =>
+            setShowAddForm((v) => {
+              const next = !v;
+              if (next) {
+                setEntryTimeInput(toZoneDateTimeLocalInput(DateTime.utc(), displayTimezone));
+              }
+              return next;
+            })
+          }
           className="inline-flex items-center gap-1 rounded bg-blue-600 px-2 py-0.5 text-[10px] font-semibold text-white hover:bg-blue-500"
         >
           {showAddForm ? <X className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
@@ -220,26 +259,39 @@ export function OngoingTradesWidget() {
           </div>
 
           <div className="grid grid-cols-2 gap-1.5">
-            <select
-              value={strategyId}
-              onChange={(e) => setStrategyId(e.target.value)}
-              className="rounded border border-slate-800 bg-slate-900 px-1.5 py-1 text-[10px] text-slate-200"
-            >
-              <option value="">No linked playbook</option>
-              {strategies.map((st) => (
-                <option key={st.id} value={st.id}>
-                  {st.name}
-                </option>
-              ))}
-            </select>
-            <input
-              type="text"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Plan / BE trigger notes"
-              className="rounded border border-slate-800 bg-slate-900 px-1.5 py-1 text-[10px] text-slate-200"
-            />
+            <label className="flex flex-col gap-0.5">
+              <span className="text-[9px] text-slate-400">Entry Time</span>
+              <input
+                type="datetime-local"
+                aria-label="Entry Time"
+                value={entryTimeInput}
+                onChange={(e) => setEntryTimeInput(e.target.value)}
+                className="rounded border border-slate-800 bg-slate-900 px-1.5 py-1 font-mono text-[10px] text-slate-200"
+              />
+            </label>
+            <label className="flex flex-col gap-0.5">
+              <span className="text-[9px] text-slate-400">Playbook</span>
+              <select
+                value={strategyId}
+                onChange={(e) => setStrategyId(e.target.value)}
+                className="rounded border border-slate-800 bg-slate-900 px-1.5 py-1 text-[10px] text-slate-200"
+              >
+                <option value="">No linked playbook</option>
+                {strategies.map((st) => (
+                  <option key={st.id} value={st.id}>
+                    {st.name}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
+          <input
+            type="text"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Plan / BE trigger notes"
+            className="w-full rounded border border-slate-800 bg-slate-900 px-1.5 py-1 text-[10px] text-slate-200"
+          />
 
           <button
             type="submit"
@@ -354,6 +406,8 @@ export function OngoingTradesWidget() {
             const stratName = tr.strategyId
               ? strategies.find((s) => s.id === tr.strategyId)?.name
               : null;
+            const entryFmt = formatEntryTimestamp(tr.openedAt, displayTimezone, timeFormat, now);
+            const elapsedText = formatElapsedDuration(tr.openedAt, now);
             return (
               <div
                 key={tr.id}
@@ -424,6 +478,19 @@ export function OngoingTradesWidget() {
                   {stratName && (
                     <span className="font-sans text-[9px] text-blue-300">• {stratName}</span>
                   )}
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-slate-400">
+                  <span className="inline-flex items-center gap-1" title={`Entered: ${entryFmt.full}`}>
+                    <Clock className="h-2.5 w-2.5 text-slate-500" />
+                    <span>Entry:</span>
+                    <span className="font-mono text-slate-300">{entryFmt.short}</span>
+                  </span>
+                  <span
+                    className="inline-flex items-center gap-1 rounded border border-slate-800 bg-slate-900/90 px-1.5 py-0.5 font-mono text-[9px] font-medium text-sky-300"
+                    title="Time elapsed since entry"
+                  >
+                    Ran: {elapsedText}
+                  </span>
                 </div>
                 {tr.notes && <p className="text-[10px] text-slate-400">{tr.notes}</p>}
               </div>

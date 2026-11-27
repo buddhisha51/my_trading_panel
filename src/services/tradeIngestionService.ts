@@ -30,6 +30,10 @@ export interface ITradeIngestionService {
     trade: OngoingTradeRecord,
     status: OngoingStatus,
   ): Promise<OngoingTradeRecord>;
+  updateOngoingRisk(
+    trade: OngoingTradeRecord,
+    patch: { stopLoss: number | null; takeProfit: number | null },
+  ): Promise<OngoingTradeRecord>;
   deleteOngoingTrade(id: string): Promise<void>;
   closeOngoingToJournal(payload: CloseOngoingTradePayload): Promise<TradeRecord>;
   listEquitySnapshots(): Promise<EquitySnapshotRecord[]>;
@@ -80,6 +84,25 @@ export class ManualTradeIngestionService implements ITradeIngestionService {
       takeProfit: trade.takeProfit,
       lotSize: trade.lotSize,
       status,
+      notes: trade.notes,
+      strategyId: trade.strategyId,
+      openedAt: trade.openedAt,
+    });
+  }
+
+  async updateOngoingRisk(
+    trade: OngoingTradeRecord,
+    patch: { stopLoss: number | null; takeProfit: number | null },
+  ): Promise<OngoingTradeRecord> {
+    return tauriBridge.upsertOngoingTrade({
+      id: trade.id,
+      pair: trade.pair,
+      direction: trade.direction,
+      entryPrice: trade.entryPrice,
+      stopLoss: patch.stopLoss,
+      takeProfit: patch.takeProfit,
+      lotSize: trade.lotSize,
+      status: trade.status,
       notes: trade.notes,
       strategyId: trade.strategyId,
       openedAt: trade.openedAt,

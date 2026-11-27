@@ -44,6 +44,10 @@ interface JournalState {
   deleteTrade: (id: string) => Promise<void>;
   openOngoingTrade: (payload: UpsertOngoingTradePayload) => Promise<OngoingTradeRecord>;
   cycleOngoingStatus: (trade: OngoingTradeRecord) => Promise<void>;
+  updateOngoingRisk: (
+    trade: OngoingTradeRecord,
+    patch: { stopLoss: number | null; takeProfit: number | null },
+  ) => Promise<void>;
   deleteOngoingTrade: (id: string) => Promise<void>;
   closeOngoingToJournal: (payload: CloseOngoingTradePayload) => Promise<TradeRecord>;
   saveTodaySnapshot: (notes?: string | null) => Promise<EquitySnapshotRecord>;
@@ -145,6 +149,20 @@ export const useJournalStore = create<JournalState>()(
       const next = order[(order.indexOf(trade.status) + 1) % order.length];
       await tradeIngestionService.updateOngoingStatus(trade, next);
       await get().hydrateJournal();
+    },
+
+    updateOngoingRisk: async (trade, patch) => {
+      set((s) => {
+        s.saving = true;
+      });
+      try {
+        await tradeIngestionService.updateOngoingRisk(trade, patch);
+        await get().hydrateJournal();
+      } finally {
+        set((s) => {
+          s.saving = false;
+        });
+      }
     },
 
     deleteOngoingTrade: async (id) => {

@@ -226,4 +226,45 @@ describe('Milestone 4 Widgets', () => {
 
     openSpy.mockRestore();
   });
+
+  it('shows smart SL/TP missing warnings in OngoingTradesWidget and clears them when updated inline', async () => {
+    await useJournalStore.getState().openOngoingTrade({
+      pair: 'EURUSD',
+      direction: 'long',
+      entryPrice: 1.085,
+      stopLoss: null,
+      takeProfit: null,
+      lotSize: 0.5,
+      notes: null,
+      strategyId: null,
+    });
+
+    render(<OngoingTradesWidget />);
+    await waitFor(() => expect(screen.getByText('EURUSD')).toBeTruthy());
+
+    expect(screen.getByRole('alert')).toBeTruthy();
+    expect(screen.getByText(/1 position missing SL \/ TP/i)).toBeTruthy();
+    expect(screen.getByText(/SL & TP not set/i)).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Set SL/TP' }));
+    });
+
+    fireEvent.change(screen.getByLabelText('Stop Loss for EURUSD'), {
+      target: { value: '1.082' },
+    });
+    fireEvent.change(screen.getByLabelText('Take Profit for EURUSD'), {
+      target: { value: '1.092' },
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(screen.getByText('SL: 1.082')).toBeTruthy();
+      expect(screen.getByText('TP: 1.092')).toBeTruthy();
+    });
+  });
 });

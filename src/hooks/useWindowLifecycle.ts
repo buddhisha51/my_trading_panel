@@ -2,15 +2,19 @@ import { DateTime } from 'luxon';
 import { useEffect, useRef } from 'react';
 import { tauriBridge } from '../services/tauriBridge';
 import { useDockStore } from '../stores/dockStore';
+import { useJournalStore } from '../stores/journalStore';
 import { useMarketStore } from '../stores/marketStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useViewerStore } from '../stores/viewerStore';
 import type { HotkeyActionId } from '../types/hotkeys';
+import {
+  evaluateMarketTimeAlerts,
+  getUnprotectedTradeReminders,
+  type TimeWindowAlertSnapshot,
+} from '../utils/alertEngine';
 import { getUpcomingHighImpactAlerts } from '../utils/calendarAlerts';
 import { matchesAccelerator } from '../utils/hotkeyUtils';
 import { launchWindowsScreenSnip } from '../utils/imageClipboard';
-import { getCurrentKillzones, NY_ZONE } from '../utils/killzoneEngine';
-import { isFxWeekendClosed } from '../utils/sessionEngine';
 
 export function useWindowLifecycle() {
   const hydrate = useSettingsStore((s) => s.hydrate);
@@ -29,8 +33,11 @@ export function useWindowLifecycle() {
   const setHotkeyConflicts = useDockStore((s) => s.setHotkeyConflicts);
   const loadMarketData = useMarketStore((s) => s.loadMarketData);
   const events = useMarketStore((s) => s.events);
+  const hydrateJournal = useJournalStore((s) => s.hydrateJournal);
+  const ongoingTrades = useJournalStore((s) => s.ongoingTrades);
 
   const notifiedTokensRef = useRef<Set<string>>(new Set());
+  const timeAlertSnapshotRef = useRef<TimeWindowAlertSnapshot | null>(null);
 
   // Hydrate persisted settings from SQLite and dock collapsed strip cleanly on startup
   useEffect(() => {
@@ -39,12 +46,14 @@ export function useWindowLifecycle() {
       await hydrate();
       if (active) {
         await initializeDock();
+        void hydrateJournal();
+        void loadMarketData();
       }
     })();
     return () => {
       active = false;
     };
-  }, [hydrate, initializeDock]);
+  }, [hydrate, hydrateJournal, initializeDock, loadMarketData]);
 
   // Sync CSS theme variables cleanly whenever appearance settings change
   useEffect(() => {
@@ -172,120 +181,140 @@ export function useWindowLifecycle() {
   // Local window keyboard shortcuts (Cheat Sheet Ctrl+/, Settings Ctrl+,, Escape, and configurable hotkeys fallback)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-        const target = e.target as HTMLElement | null;
-        const inEditable =
-          target?.tagName === 'INPUT' ||
-          target?.tagName === 'TEXTAREA' ||
-          target?.tagName === 'SELECT' ||
-          Boolean(target?.isContentEditable);
+      const target = e.target as HTMLElement | null;
+      const inEditable =
+        target?.tagName === 'INPUT' ||
+        target?.tagName === 'TEXTAREA' ||
+        target?.tagName === 'SELECT' ||
+        Boolean(target?.isContentEditable);
 
-        if ((e.ctrlKey || e.metaKey) && e.key === '/') {
+      if ((e.ctrlKey || e.metaKey) && e.key === '/') {
+        e.preventDefault();
+        const cur = useDockStore.getState().isHotkeysOpen;
+        void setHotkeysOpen(!cur);
+        return;
+      }
+
+      if (!inEditable && e.key === '?') {
+        e.preventDefault();
+        const cur = useDockStore.getState().isHotkeysOpen;
+        void setHotkeysOpen(!cur);
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.key === ',') {
+        e.preventDefault();
+        const cur = useDockStore.getState().isSettingsOpen;
+        void setSettingsOpen(!cur);
+        return;
+      }
+
+      if (e.key === 'Escape') {
+        const dock = useDockStore.getState();
+        if (dock.isHotkeysOpen) {
           e.preventDefault();
-          const cur = useDockStore.getState().isHotkeysOpen;
-          void setHotkeysOpen(!cur);
+          void setHotkeysOpen(false);
           return;
         }
-
-        if (!inEditable && e.key === '?') {
+        if (dock.isSettingsOpen) {
           e.preventDefault();
-          const cur = useDockStore.getState().isHotkeysOpen;
-          void setHotkeysOpen(!cur);
+          void setSettingsOpen(false);
           return;
         }
-
-        if ((e.ctrlKey || e.metaKey) && e.key === ',') {
+        if (dock.phase === 'fullscreen') {
           e.preventDefault();
-          const cur = useDockStore.getState().isSettingsOpen;
-          void setSettingsOpen(!cur);
+          void toggleFullScreen();
           return;
         }
+      }
 
-        if (e.key === 'Escape') {
-          const dock = useDockStore.getState();
-          if (dock.isHotkeysOpen) {
+      if (settings.hotkeys.enabled) {
+        const actions: HotkeyActionId[] = [
+          'toggleFullscreen',
+          'togglePanel',
+          'screenSnip',
+          'togglePin',
+        ];
+        for (const actId of actions) {
+          if (matchesAccelerator(e, settings.hotkeys[actId])) {
             e.preventDefault();
-            void setHotkeysOpen(false);
-            return;
-          }
-          if (dock.isSettingsOpen) {
-            e.preventDefault();
-            void setSettingsOpen(false);
-            return;
-          }
-          if (dock.phase === 'fullscreen') {
-            e.preventDefault();
-            void toggleFullScreen();
+            dispatchHotkeyAction.current(actId);
             return;
           }
         }
+      }
+    };
 
-        if (settings.hotkeys.enabled) {
-          const actions: HotkeyActionId[] = [
-            'toggleFullscreen',
-            'togglePanel',
-            'screenSnip',
-            'togglePin',
-          ];
-          for (const actId of actions) {
-            if (matchesAccelerator(e, settings.hotkeys[actId])) {
-              e.preventDefault();
-              dispatchHotkeyAction.current(actId);
-              return;
-            }
-          }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [setHotkeysOpen, setSettingsOpen, settings.hotkeys, toggleFullScreen]);
+
+  // Background notification watcher for Killzone & Session start/end, <=15m Red-Folder news,
+  // and recurring 15-minute Missing SL/TP ongoing trade reminders.
+  useEffect(() => {
+    if (!hydrated || !settings.notificationsEnabled) {
+      timeAlertSnapshotRef.current = null;
+      return;
+    }
+
+    const checkAlerts = () => {
+      const now = DateTime.utc();
+
+      // 1. Killzone & Forex Session Start / End transitions
+      const { alerts: timeAlerts, nextSnapshot } = evaluateMarketTimeAlerts({
+        now,
+        killzones: settings.killzones,
+        displayTimezone: settings.displayTimezone,
+        timeFormat: settings.timeFormat,
+        prevSnapshot: timeAlertSnapshotRef.current,
+      });
+      timeAlertSnapshotRef.current = nextSnapshot;
+
+      for (const alert of timeAlerts) {
+        if (!notifiedTokensRef.current.has(alert.token)) {
+          notifiedTokensRef.current.add(alert.token);
+          void tauriBridge.sendDesktopNotification(alert.title, alert.body);
         }
-      };
+      }
 
-      window.addEventListener('keydown', onKeyDown);
-      return () => window.removeEventListener('keydown', onKeyDown);
-}, [setHotkeysOpen, setSettingsOpen, settings.hotkeys, toggleFullScreen]);
+      // 2. Recurring 15-min Market Check reminders when SL or TP is missing on open trades
+      const tradeReminders = getUnprotectedTradeReminders(ongoingTrades, now);
+      for (const rem of tradeReminders) {
+        if (!notifiedTokensRef.current.has(rem.token)) {
+          notifiedTokensRef.current.add(rem.token);
+          void tauriBridge.sendDesktopNotification(rem.title, rem.body);
+        }
+      }
 
-// Background notification watcher for active primary Killzones and <=15m Red-Folder alerts
-useEffect(() => {
-  if (!hydrated || !settings.notificationsEnabled) return;
-
-  const checkAlerts = () => {
-    const now = DateTime.utc();
-    if (!isFxWeekendClosed(now)) {
-      const activeKzs = getCurrentKillzones(now, NY_ZONE, settings.killzones).filter(
-        (z) => z.isActive && z.kind === 'killzone',
+      // 3. Imminent High-Impact Economic Events
+      const imminent = getUpcomingHighImpactAlerts(
+        events,
+        now,
+        settings.volatilityThresholdMin || 15,
       );
-      for (const kz of activeKzs) {
-        const token = `kz:${kz.id}:${kz.nyStart.toISODate()}`;
+      for (const al of imminent) {
+        const token = `ev:${al.event.id}`;
         if (!notifiedTokensRef.current.has(token)) {
           notifiedTokensRef.current.add(token);
           void tauriBridge.sendDesktopNotification(
-            `${kz.label} Active`,
-            `NY window ${kz.nyStart.toFormat('HH:mm')}–${kz.nyEnd.toFormat('HH:mm')} is now live.`,
+            `High Volatility Alert (${al.event.country})`,
+            al.message,
           );
         }
       }
-    }
+    };
 
-    const imminent = getUpcomingHighImpactAlerts(
-      events,
-      now,
-      settings.volatilityThresholdMin || 15,
-    );
-    for (const al of imminent) {
-      const token = `ev:${al.event.id}`;
-      if (!notifiedTokensRef.current.has(token)) {
-        notifiedTokensRef.current.add(token);
-        void tauriBridge.sendDesktopNotification(
-          `High Volatility Alert (${al.event.country})`,
-          al.message,
-        );
-      }
-    }
-  };
-
-  const timer = window.setInterval(checkAlerts, 30_000);
-  return () => window.clearInterval(timer);
-}, [
-  events,
-  hydrated,
-  settings.killzones,
-  settings.notificationsEnabled,
-  settings.volatilityThresholdMin,
-]);
+    checkAlerts();
+    const timer = window.setInterval(checkAlerts, 15_000);
+    return () => window.clearInterval(timer);
+  }, [
+    events,
+    hydrated,
+    ongoingTrades,
+    settings.displayTimezone,
+    settings.killzones,
+    settings.notificationsEnabled,
+    settings.timeFormat,
+    settings.volatilityThresholdMin,
+  ]);
 }

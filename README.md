@@ -49,7 +49,7 @@ All widgets can be reordered (drag-and-drop or up/down arrows), toggled on/off, 
 4. **Risk & Lot Size Calculator:** Instant lot sizing, tick/pip risk math, and R-multiple calculations across Forex majors, JPY crosses, XAUUSD, and US indices with editable instrument specifications.
 5. **Quick Notes & Canvas:** TipTap rich text notes + Windows native snipping (`ms-screenclip:` & `Ctrl + V` paste) + lazy-loaded interactive Konva **ICT Drawing Canvas** with SVG card thumbnails.
 6. **Strategies & Playbooks:** Build custom trade models with rich descriptions, ICT canvas diagrams, and interactive confluence checklists that live-grade setups (`A+`, `A`, `B`, `C`).
-7. **Ongoing Trades Monitor:** Track open positions live with one-click closure directly into the Trade Journal.
+7. **Ongoing Trades Monitor:** Track active positions live with **Entry Time**, real-time **Elapsed Running Duration**, smart missing **SL/TP** warnings (plus inline quick-fix & 15m market-check notification reminders), and one-click closure directly into the Trade Journal.
 8. **Trade Journal & Equity:** Manual trade log, win rate, profit factor, R-multiple stats, SVG equity curve, and Prop Firm drawdown alerts (Daily DD %, Max DD %, Static vs. Trailing High-Water Mark).
 9. **Economic Calendar:** Rust-fetched, SQLite-cached economic events (`nfs.faireconomy.media`) with currency/impact filters and `<= 15m` Red-Folder volatility alerts.
 10. **Forex & Crypto News:** SQLite-cached feeds from CryptoCompare, ForexLive RSS, FXStreet RSS, Cointelegraph RSS, custom user RSS URLs, and optional Finnhub integration (API key stored securely in Windows Credential Manager).
@@ -91,7 +91,7 @@ Open Settings via the gear icon or **`Ctrl + ,`**:
 - **Theme:** Accent color presets or custom color picker, panel surface opacity, edge strip opacity/color, and strip status indicator mode (`Killzone`, `Session`, or `Hidden`).
 - **Time:** Display timezone, `24h` / `12h` clock format, dual NY reference clock toggle, and automatic IANA DST handling.
 - **Zones:** Toggle Silver Bullets, ICT Macros, and NY Midnight Open line; edit start/end times and colors for every Killzone and Macro; or reset ICT defaults.
-- **Keys:** Enable/pause and rebind global shortcuts with live conflict detection, open the Hotkey Cheat Sheet, toggle Windows toast notifications, and run **Full Backup & Restore (`.zip`)**.
+- **Keys:** Enable/pause and rebind global shortcuts with live conflict detection, open the Hotkey Cheat Sheet, toggle Windows toast notifications (**Killzone & Session start/end**, `<= 15m` Red-Folder news, and **15m Missing SL/TP trade reminders**), and run **Full Backup & Restore (`.zip`)**.
 - **Widgets:** Reorder or hide widgets, set per-widget custom height (Left/Right docks) or width (Top/Bottom docks), customize **OTE & Fib** levels/colors/opacity, save an optional **Finnhub API key**, add/remove custom **RSS feeds**, and inspect local SQLite status.
 
 ---

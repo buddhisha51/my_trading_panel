@@ -1201,9 +1201,9 @@ export function SettingsOverlay({ initialTab = 'dock' }: SettingsOverlayProps) {
                     <Bell className="h-3.5 w-3.5 text-amber-400" />
                     Alerts &amp; Notifications
                   </div>
-                  <label className="flex cursor-pointer items-center justify-between">
+                  <label className="flex cursor-pointer items-center justify-between gap-2">
                     <span className="text-slate-300">
-                      Desktop Toast Alerts (Killzone opens &amp; &le;15m Red Folder news)
+                      Desktop Toast Alerts (Killzone &amp; Session start/end, &le;15m Red Folder news, 15m Missing SL/TP reminder)
                     </span>
                     <input
                       type="checkbox"

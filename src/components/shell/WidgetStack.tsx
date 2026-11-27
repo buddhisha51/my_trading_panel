@@ -25,6 +25,7 @@ import { useNotesStore } from '../../stores/notesStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useStrategiesStore } from '../../stores/strategiesStore';
 import { WIDGET_CATALOG, type WidgetId } from '../../types/settings';
+import { inspectOngoingTradeRisk } from '../../utils/alertEngine';
 import { getUpcomingHighImpactAlerts } from '../../utils/calendarAlerts';
 import {
   DailyBiasWidget,
@@ -65,7 +66,9 @@ export function WidgetStack({ now, layout }: WidgetStackProps) {
   const monthlyByPair = useDailyBiasStore((s) => s.monthlyByPair);
   const notesCount = useNotesStore((s) => s.notes.length);
   const strategiesCount = useStrategiesStore((s) => s.strategies.length);
-  const ongoingCount = useJournalStore((s) => s.ongoingTrades.length);
+  const ongoingTrades = useJournalStore((s) => s.ongoingTrades);
+  const ongoingCount = ongoingTrades.length;
+  const unprotectedOngoing = ongoingTrades.map(inspectOngoingTradeRisk).filter((r) => r.needsAttention);
   const journalMetrics = useJournalStore((s) => s.metrics);
   const events = useMarketStore((s) => s.events);
   const newsCount = useMarketStore((s) => s.news.length);
@@ -228,9 +231,23 @@ export function WidgetStack({ now, layout }: WidgetStackProps) {
       );
     }
     if (id === 'ongoing-trades') {
+      const hasCriticalSl = unprotectedOngoing.some((r) => r.missingSl);
+      const hasUnprotected = unprotectedOngoing.length > 0;
       return (
-        <span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] text-slate-300">
-          {ongoingCount}
+        <span
+          className={`rounded px-1.5 py-0.5 font-mono text-[10px] font-medium ${
+            hasCriticalSl
+              ? 'bg-rose-500/20 text-rose-300'
+              : hasUnprotected
+                ? 'bg-amber-500/20 text-amber-300'
+                : 'bg-slate-800 text-slate-300'
+          }`}
+        >
+          {hasCriticalSl
+            ? `${ongoingCount} • NO SL`
+            : hasUnprotected
+              ? `${ongoingCount} • NO TP`
+              : ongoingCount}
         </span>
       );
     }

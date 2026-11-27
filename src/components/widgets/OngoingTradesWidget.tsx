@@ -1,4 +1,15 @@
-import { CheckCircle2, Clock, Plus, Trash2, TrendingDown, TrendingUp, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  Pencil,
+  Plus,
+  ShieldAlert,
+  Trash2,
+  TrendingDown,
+  TrendingUp,
+  X,
+} from 'lucide-react';
 import { DateTime } from 'luxon';
 import { useEffect, useState } from 'react';
 import { useJournalStore } from '../../stores/journalStore';
@@ -10,6 +21,7 @@ import type {
   TradeDirection,
   TradeOutcome,
 } from '../../types/journal';
+import { getOngoingRiskSummary, inspectOngoingTradeRisk } from '../../utils/alertEngine';
 import { normalizeTradePnl, normalizeTradeR } from '../../utils/drawdownEngine';
 import { evaluateSetupChecklist } from '../../utils/strategyGrade';
 import {
@@ -31,14 +43,20 @@ export function OngoingTradesWidget() {
   const watchlistPairs = useSettingsStore((s) => s.settings.watchlistPairs);
   const displayTimezone = useSettingsStore((s) => s.settings.displayTimezone);
   const timeFormat = useSettingsStore((s) => s.settings.timeFormat);
+  const notificationsEnabled = useSettingsStore((s) => s.settings.notificationsEnabled);
 
   const ongoingTrades = useJournalStore((s) => s.ongoingTrades);
   const saving = useJournalStore((s) => s.saving);
   const hydrateJournal = useJournalStore((s) => s.hydrateJournal);
   const openOngoingTrade = useJournalStore((s) => s.openOngoingTrade);
   const cycleOngoingStatus = useJournalStore((s) => s.cycleOngoingStatus);
+  const updateOngoingRisk = useJournalStore((s) => s.updateOngoingRisk);
   const deleteOngoingTrade = useJournalStore((s) => s.deleteOngoingTrade);
   const closeOngoingToJournal = useJournalStore((s) => s.closeOngoingToJournal);
+
+  const [editingRiskId, setEditingRiskId] = useState<string | null>(null);
+  const [editSlDraft, setEditSlDraft] = useState('');
+  const [editTpDraft, setEditTpDraft] = useState('');
 
   const strategies = useStrategiesStore((s) => s.strategies);
   const checkedRuleIdsByStrategy = useStrategiesStore((s) => s.checkedRuleIdsByStrategy);
@@ -164,8 +182,74 @@ export function OngoingTradesWidget() {
     setCloseNotes('');
   };
 
+  const startEditingRisk = (trade: OngoingTradeRecord) => {
+    setEditingRiskId(trade.id);
+    setEditSlDraft(trade.stopLoss !== null ? String(trade.stopLoss) : '');
+    setEditTpDraft(trade.takeProfit !== null ? String(trade.takeProfit) : '');
+  };
+
+  const handleSaveRisk = async (e: React.FormEvent, trade: OngoingTradeRecord) => {
+    e.preventDefault();
+    const parsedSl = editSlDraft.trim() ? Number(editSlDraft) : null;
+    const parsedTp = editTpDraft.trim() ? Number(editTpDraft) : null;
+    await updateOngoingRisk(trade, {
+      stopLoss: parsedSl !== null && Number.isFinite(parsedSl) && parsedSl > 0 ? parsedSl : null,
+      takeProfit: parsedTp !== null && Number.isFinite(parsedTp) && parsedTp > 0 ? parsedTp : null,
+    });
+    setEditingRiskId(null);
+  };
+
+  const riskSummary = getOngoingRiskSummary(ongoingTrades, now);
+  const firstUnprotectedTrade = ongoingTrades.find(
+    (t) => inspectOngoingTradeRisk(t).needsAttention,
+  );
+  const nextReminderMin =
+    riskSummary.soonestNextReminderMs !== null
+      ? Math.max(1, Math.ceil(riskSummary.soonestNextReminderMs / 60_000))
+      : null;
+
   return (
     <div className="space-y-2 text-[11px]">
+      {riskSummary.unprotectedCount > 0 && (
+        <div
+          role="alert"
+          className={`flex items-start justify-between gap-2 rounded-md border px-2.5 py-1.5 text-[10px] ${
+            riskSummary.missingSlCount > 0
+              ? 'border-rose-500/45 bg-rose-500/12 text-rose-200'
+              : 'border-amber-500/45 bg-amber-500/12 text-amber-200'
+          }`}
+        >
+          <div className="flex min-w-0 items-start gap-1.5">
+            <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <div className="min-w-0 leading-snug">
+              <div className="font-semibold">
+                {riskSummary.unprotectedCount}{' '}
+                {riskSummary.unprotectedCount === 1 ? 'position' : 'positions'} missing{' '}
+                {riskSummary.missingSlCount > 0 && riskSummary.missingTpCount > 0
+                  ? 'SL / TP'
+                  : riskSummary.missingSlCount > 0
+                    ? 'Stop Loss'
+                    : 'Take Profit'}
+              </div>
+              <div className="text-[9px] opacity-85">
+                {notificationsEnabled
+                  ? `15m market check reminder active${nextReminderMin ? ` • next in ~${nextReminderMin}m` : ''}`
+                  : '15m alerts paused in Settings → Keys'}
+              </div>
+            </div>
+          </div>
+          {firstUnprotectedTrade && (
+            <button
+              type="button"
+              onClick={() => startEditingRisk(firstUnprotectedTrade)}
+              className="shrink-0 rounded border border-current/30 bg-slate-950/60 px-1.5 py-0.5 text-[9px] font-semibold hover:bg-slate-900"
+            >
+              Set SL/TP
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <span className="text-[10px] text-slate-400">
           {ongoingTrades.length} active position{ongoingTrades.length === 1 ? '' : 's'}
@@ -408,10 +492,18 @@ export function OngoingTradesWidget() {
               : null;
             const entryFmt = formatEntryTimestamp(tr.openedAt, displayTimezone, timeFormat, now);
             const elapsedText = formatElapsedDuration(tr.openedAt, now);
+            const risk = inspectOngoingTradeRisk(tr);
+            const isEditingRisk = editingRiskId === tr.id;
             return (
               <div
                 key={tr.id}
-                className="space-y-1 rounded-md border border-slate-800 bg-slate-950/75 p-2"
+                className={`space-y-1 rounded-md border bg-slate-950/75 p-2 ${
+                  risk.severity === 'critical'
+                    ? 'border-rose-500/45'
+                    : risk.severity === 'warning'
+                      ? 'border-amber-500/40'
+                      : 'border-slate-800'
+                }`}
               >
                 <div className="flex items-center justify-between gap-1.5">
                   <div className="flex items-center gap-1.5">
@@ -471,14 +563,95 @@ export function OngoingTradesWidget() {
 
                 <div className="flex flex-wrap items-center gap-2 font-mono text-[10px] text-slate-400">
                   <span>E: {tr.entryPrice}</span>
-                  {tr.stopLoss !== null && <span className="text-rose-400">SL: {tr.stopLoss}</span>}
-                  {tr.takeProfit !== null && (
-                    <span className="text-emerald-400">TP: {tr.takeProfit}</span>
+                  {tr.stopLoss !== null ? (
+                    <span className="text-rose-400">SL: {tr.stopLoss}</span>
+                  ) : (
+                    <span className="rounded bg-rose-500/15 px-1 text-[9px] font-semibold text-rose-300">
+                      SL: —
+                    </span>
                   )}
+                  {tr.takeProfit !== null ? (
+                    <span className="text-emerald-400">TP: {tr.takeProfit}</span>
+                  ) : (
+                    <span className="rounded bg-amber-500/15 px-1 text-[9px] font-semibold text-amber-300">
+                      TP: —
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      isEditingRisk ? setEditingRiskId(null) : startEditingRisk(tr)
+                    }
+                    title="Edit SL / TP"
+                    aria-label={`Edit SL/TP for ${tr.pair}`}
+                    className="rounded p-0.5 text-slate-500 hover:bg-slate-800 hover:text-slate-200"
+                  >
+                    <Pencil className="h-2.5 w-2.5" />
+                  </button>
                   {stratName && (
                     <span className="font-sans text-[9px] text-blue-300">• {stratName}</span>
                   )}
                 </div>
+                {risk.needsAttention && !isEditingRisk && (
+                  <div
+                    className={`flex items-center justify-between gap-1.5 rounded border px-1.5 py-1 text-[9px] ${
+                      risk.severity === 'critical'
+                        ? 'border-rose-500/35 bg-rose-500/10 text-rose-200'
+                        : 'border-amber-500/35 bg-amber-500/10 text-amber-200'
+                    }`}
+                  >
+                    <span className="inline-flex min-w-0 items-center gap-1 truncate">
+                      <AlertTriangle className="h-3 w-3 shrink-0" />
+                      <span className="truncate">{risk.warningMessage}</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => startEditingRisk(tr)}
+                      className="shrink-0 rounded bg-slate-900 px-1.5 py-0.5 font-semibold text-slate-100 hover:bg-slate-800"
+                    >
+                      Fix
+                    </button>
+                  </div>
+                )}
+                {isEditingRisk && (
+                  <form
+                    onSubmit={(e) => void handleSaveRisk(e, tr)}
+                    className="grid grid-cols-[1fr_1fr_auto_auto] items-center gap-1 rounded border border-blue-500/40 bg-slate-900/90 p-1.5"
+                  >
+                    <input
+                      type="number"
+                      step="any"
+                      aria-label={`Stop Loss for ${tr.pair}`}
+                      value={editSlDraft}
+                      onChange={(e) => setEditSlDraft(e.target.value)}
+                      placeholder="Stop Loss"
+                      className="min-w-0 rounded border border-slate-700 bg-slate-950 px-1.5 py-0.5 font-mono text-[10px] text-slate-100"
+                    />
+                    <input
+                      type="number"
+                      step="any"
+                      aria-label={`Take Profit for ${tr.pair}`}
+                      value={editTpDraft}
+                      onChange={(e) => setEditTpDraft(e.target.value)}
+                      placeholder="Take Profit"
+                      className="min-w-0 rounded border border-slate-700 bg-slate-950 px-1.5 py-0.5 font-mono text-[10px] text-slate-100"
+                    />
+                    <button
+                      type="submit"
+                      disabled={saving}
+                      className="rounded bg-blue-600 px-2 py-0.5 text-[9px] font-semibold text-white hover:bg-blue-500 disabled:opacity-50"
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingRiskId(null)}
+                      className="rounded border border-slate-700 px-1.5 py-0.5 text-[9px] text-slate-300 hover:bg-slate-800"
+                    >
+                      Cancel
+                    </button>
+                  </form>
+                )}
                 <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-slate-400">
                   <span className="inline-flex items-center gap-1" title={`Entered: ${entryFmt.full}`}>
                     <Clock className="h-2.5 w-2.5 text-slate-500" />

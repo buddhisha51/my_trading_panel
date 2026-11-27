@@ -10,6 +10,7 @@ import type {
 } from '../types/backup';
 import type { DailyBiasEntry, UpsertDailyBiasPayload } from '../types/dailyBias';
 import type { HotkeyActionId, HotkeyConfig } from '../types/hotkeys';
+import type { FloatingViewerPayload } from '../types/viewer';
 import type {
   DockAppliedResponse,
   DockEdge,
@@ -1372,5 +1373,55 @@ export const tauriBridge = {
       unlistenToggle();
       unlistenPin();
     };
+  },
+
+  // --- Separate Floating Note / Strategy Viewer Window ---
+  async openFloatingViewer(payload: FloatingViewerPayload): Promise<boolean> {
+    if (!isTauriRuntime()) return false;
+    await invoke('open_floating_viewer', { payloadJson: JSON.stringify(payload) });
+    return true;
+  },
+
+  async getFloatingViewerPayload(): Promise<FloatingViewerPayload | null> {
+    if (!isTauriRuntime()) return null;
+    const raw = await invoke<string | null>('get_floating_viewer_payload');
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as FloatingViewerPayload;
+    } catch {
+      return null;
+    }
+  },
+
+  async closeFloatingViewer(): Promise<void> {
+    if (!isTauriRuntime()) return;
+    await invoke('close_floating_viewer');
+  },
+
+  async requestViewerEdit(kind: 'note' | 'strategy', id: string): Promise<void> {
+    if (!isTauriRuntime()) return;
+    await invoke('request_viewer_edit', { kind, id });
+  },
+
+  async onViewerPayloadUpdated(cb: (payload: FloatingViewerPayload) => void): Promise<UnlistenFn> {
+    if (!isTauriRuntime()) return () => {};
+    return listen<string>('viewer-payload-updated', (ev) => {
+      try {
+        cb(JSON.parse(ev.payload) as FloatingViewerPayload);
+      } catch {
+        // ignore malformed payload
+      }
+    });
+  },
+
+  async onViewerRequestEdit(
+    cb: (req: { kind: 'note' | 'strategy'; id: string }) => void,
+  ): Promise<UnlistenFn> {
+    if (!isTauriRuntime()) return () => {};
+    return listen<{ kind: 'note' | 'strategy'; id: string }>('viewer-request-edit', (ev) => {
+      if (ev.payload?.kind && ev.payload?.id) {
+        cb(ev.payload);
+      }
+    });
   },
 };

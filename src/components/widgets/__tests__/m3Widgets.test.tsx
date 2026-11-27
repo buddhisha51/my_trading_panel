@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { useNotesStore } from '../../../stores/notesStore';
 import { useSettingsStore } from '../../../stores/settingsStore';
 import { useStrategiesStore } from '../../../stores/strategiesStore';
+import { useViewerStore } from '../../../stores/viewerStore';
 import { EMPTY_TIPTAP_DOC } from '../../../types/canvas';
 import { DEFAULT_SETTINGS, DEFAULT_WIDGET_LAYOUT } from '../../../types/settings';
 import { QuickNotesWidget } from '../QuickNotesWidget';
@@ -30,6 +31,10 @@ describe('Milestone 3 Widgets', () => {
       saving: false,
       checkedRuleIdsByStrategy: {},
       attachmentsByStrategyId: {},
+    });
+    useViewerStore.setState({
+      previewPayload: null,
+      editRequest: null,
     });
   });
 
@@ -194,5 +199,62 @@ describe('Milestone 3 Widgets', () => {
       expect(screen.getByAltText('Note screenshot')).toBeTruthy();
       expect(screen.getByText('1 Screenshot')).toBeTruthy();
     });
+
+    // Clicking the note card opens the floating view (with full text, canvas, screenshots) and off-click closes it
+    await act(async () => {
+      fireEvent.click(screen.getByText('EURUSD Markup'));
+    });
+    const viewer = await screen.findByTestId('floating-detail-viewer');
+    expect(viewer).toBeTruthy();
+    expect(screen.getByText(/Attached Screenshots \(1\)/i)).toBeTruthy();
+    expect(screen.getByAltText('Note screenshot attachment')).toBeTruthy();
+
+    fireEvent.mouseDown(screen.getByTestId('floating-viewer-backdrop'));
+    expect(screen.queryByTestId('floating-detail-viewer')).toBeNull();
+
+    // Clicking the dedicated Pencil button between Pin and Delete opens inline edit mode
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Edit note' }));
+    });
+    expect(screen.getByPlaceholderText(/Note title/i)).toBeTruthy();
+  });
+
+  it('opens Strategy floating viewer on click with full details and closes on off-click', async () => {
+    const richBody = JSON.stringify({
+      type: 'doc',
+      content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'Wait for 15M FVG sweep before entry.' }] },
+      ],
+    });
+    await useStrategiesStore.getState().attachFileToStrategy(
+      {
+        id: 'st_view_1',
+        name: '2022 Model',
+        description: 'NY AM Liquidity + Displacement',
+        bodyJson: richBody,
+        canvasJson: null,
+        tags: ['ict', 'ny-am'],
+        isActive: true,
+        sortOrder: 0,
+        checklist: [
+          { id: 'r1', name: 'HTF Draw Aligned', description: null, sortOrder: 0, isRequired: true },
+        ],
+      },
+      [137, 80, 78, 71],
+      'image/png',
+    );
+
+    render(<StrategiesWidget />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'View full playbook' })).toBeTruthy());
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'View full playbook' }));
+    });
+    expect(await screen.findByTestId('floating-detail-viewer')).toBeTruthy();
+    expect(screen.getByText('Wait for 15M FVG sweep before entry.')).toBeTruthy();
+    expect(screen.getByText(/Attached Screenshots \(1\)/i)).toBeTruthy();
+
+    fireEvent.mouseDown(screen.getByTestId('floating-viewer-backdrop'));
+    expect(screen.queryByTestId('floating-detail-viewer')).toBeNull();
   });
 });

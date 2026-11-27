@@ -167,3 +167,45 @@ export function RichTextEditor({
     </div>
   );
 }
+
+interface RichTextViewerProps {
+  bodyJson: string;
+  fallbackText?: string | null;
+}
+
+/** Read-only TipTap viewer preserving headings, lists, code, and inline formatting. */
+export function RichTextViewer({ bodyJson, fallbackText }: RichTextViewerProps) {
+  const editor = useEditor(
+    {
+      editable: false,
+      extensions: [
+        StarterKit.configure({
+          heading: { levels: [2, 3] },
+          link: { openOnClick: true },
+        }),
+      ],
+      content: safeParseTipTapJson(bodyJson),
+      editorProps: {
+        attributes: {
+          class:
+            'prose prose-invert prose-sm max-w-none text-xs leading-relaxed text-slate-200 focus:outline-none [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:mt-2 [&_h2]:text-sm [&_h2]:font-bold [&_h2]:text-slate-100 [&_h3]:text-xs [&_h3]:font-semibold [&_code]:rounded [&_code]:bg-slate-800 [&_code]:px-1 [&_p]:my-1',
+        },
+      },
+    },
+    [bodyJson],
+  );
+
+  const hasRichText = Boolean(editor && editor.getText().trim().length > 0);
+  if (!hasRichText) {
+    if (fallbackText?.trim()) {
+      return (
+        <p className="whitespace-pre-wrap text-xs leading-relaxed text-slate-200">
+          {fallbackText}
+        </p>
+      );
+    }
+    return null;
+  }
+
+  return <EditorContent editor={editor} />;
+}

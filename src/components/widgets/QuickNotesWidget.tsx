@@ -3,16 +3,18 @@ import {
   Camera,
   Image as ImageIcon,
   Layers,
+  Pencil,
   Pin,
   Plus,
   Search,
   Trash2,
   Upload,
 } from 'lucide-react';
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { tauriBridge } from '../../services/tauriBridge';
 import { useNotesStore } from '../../stores/notesStore';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useViewerStore } from '../../stores/viewerStore';
 import {
   EMPTY_TIPTAP_DOC,
   parseCanvasDocument,
@@ -26,6 +28,7 @@ import {
 } from '../../utils/imageClipboard';
 import { CanvasMiniPreview } from '../canvas/CanvasMiniPreview';
 import { RichTextEditor } from '../editor/RichTextEditor';
+import { PreviewFloatingViewerPortal } from '../viewer/FloatingDetailViewer';
 
 const DrawingCanvas = lazy(() =>
   import('../canvas/DrawingCanvas').then((m) => ({ default: m.DrawingCanvas })),
@@ -86,6 +89,13 @@ function parseTagsCsv(text: string): string[] {
 
 export function QuickNotesWidget() {
   const watchlistPairs = useSettingsStore((s) => s.settings.watchlistPairs);
+  const canvasTools = useSettingsStore((s) => s.settings.canvasTools);
+  const displayTimezone = useSettingsStore((s) => s.settings.displayTimezone);
+  const timeFormat = useSettingsStore((s) => s.settings.timeFormat);
+
+  const openViewer = useViewerStore((s) => s.openViewer);
+  const editRequest = useViewerStore((s) => s.editRequest);
+  const clearEditRequest = useViewerStore((s) => s.clearEditRequest);
 
   const notes = useNotesStore((s) => s.notes);
   const loading = useNotesStore((s) => s.loading);
@@ -137,14 +147,39 @@ export function QuickNotesWidget() {
     };
   };
 
-  const handleOpenNote = (note: NoteItem) => {
-    const next = toNoteDraft(note);
-    setDraft(next);
-    const hasCanvas =
-      next.canvasDoc.shapes.length > 0 || Boolean(next.canvasDoc.backgroundAttachmentPath);
-    setShowCanvas(hasCanvas);
-    void loadNoteAttachments(note.id);
+  const handleOpenNote = useCallback(
+    (note: NoteItem) => {
+      const next = toNoteDraft(note);
+      setDraft(next);
+      const hasCanvas =
+        next.canvasDoc.shapes.length > 0 || Boolean(next.canvasDoc.backgroundAttachmentPath);
+      setShowCanvas(hasCanvas);
+      void loadNoteAttachments(note.id);
+    },
+    [loadNoteAttachments],
+  );
+
+  const handleViewNote = async (note: NoteItem) => {
+    const attachments =
+      attachmentsByNoteId[note.id] ?? (await tauriBridge.listAttachments('notes', note.id));
+    await openViewer({
+      kind: 'note',
+      note,
+      attachments,
+      canvasTools,
+      displayTimezone,
+      timeFormat,
+    });
   };
+
+  useEffect(() => {
+    if (editRequest?.kind !== 'note') return;
+    const match = notes.find((n) => n.id === editRequest.id);
+    if (match) {
+      handleOpenNote(match);
+    }
+    clearEditRequest();
+  }, [clearEditRequest, editRequest, handleOpenNote, notes]);
 
   const handleCreateNote = () => {
     setDraft(createNewNoteDraft());
@@ -495,7 +530,8 @@ export function QuickNotesWidget() {
             return (
               <div
                 key={n.id}
-                onClick={() => handleOpenNote(n)}
+                onClick={() => void handleViewNote(n)}
+                title="Click to open floating view"
                 className="group cursor-pointer rounded-md border border-slate-800 bg-slate-950/75 p-2 transition-colors hover:border-slate-700 hover:bg-slate-900"
               >
                 <div className="flex items-start justify-between gap-1.5">
@@ -524,6 +560,18 @@ export function QuickNotesWidget() {
                       className="rounded p-1 text-slate-500 hover:bg-slate-800 hover:text-amber-300"
                     >
                       <Pin className="h-3 w-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleOpenNote(n);
+                      }}
+                      title="Edit note"
+                      aria-label="Edit note"
+                      className="rounded p-1 text-slate-500 hover:bg-slate-800 hover:text-blue-300"
+                    >
+                      <Pencil className="h-3 w-3" />
                     </button>
                     <button
                       type="button"
@@ -608,6 +656,7 @@ export function QuickNotesWidget() {
           })}
         </div>
       )}
+      <PreviewFloatingViewerPortal kind="note" />
     </div>
   );
 }

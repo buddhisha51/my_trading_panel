@@ -5,7 +5,7 @@ import { computeFibLevels, computeOteFibLevels } from '../../utils/canvasGeometr
 
 interface CanvasMiniPreviewProps {
   canvasJson: string;
-  size?: 'compact' | 'large';
+  size?: 'compact' | 'large' | 'full';
 }
 
 /**
@@ -23,9 +23,11 @@ interface CanvasMiniPreviewProps {
     const bgSrc = tauriBridge.resolveAttachmentSrc(doc.backgroundAttachmentPath);
 
     const sizeClass =
-      size === 'large'
-        ? 'h-48 w-full rounded-md'
-        : 'h-14 w-24 shrink-0 rounded';
+      size === 'full'
+        ? 'h-80 w-full rounded-lg'
+        : size === 'large'
+          ? 'h-48 w-full rounded-md'
+          : 'h-14 w-24 shrink-0 rounded';
 
     return (
       <div

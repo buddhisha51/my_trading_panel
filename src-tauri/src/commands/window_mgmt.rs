@@ -3,8 +3,36 @@ use crate::docking::multi_monitor::{enumerate_monitors, resolve_monitor};
 use crate::docking::win32_styles;
 use crate::docking::{DockEdge, DockGeometry, DockSnapResult, MonitorInfo};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, WebviewWindow};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_opener::OpenerExt;
+
+/// Holds the current Note/Strategy detail payload and focus-blur arming state for `"detail-viewer"`.
+#[derive(Default)]
+pub struct ViewerState {
+    pub payload_json: Mutex<Option<String>>,
+    pub armed: AtomicBool,
+    pub opened_at: Mutex<Option<Instant>>,
+}
+
+impl ViewerState {
+    pub fn mark_focused(&self) {
+        self.armed.store(true, Ordering::SeqCst);
+    }
+
+    pub fn should_close_on_blur(&self) -> bool {
+        let elapsed_ok = self
+            .opened_at
+            .lock()
+            .ok()
+            .and_then(|g| *g)
+            .map(|t| t.elapsed() >= Duration::from_millis(160))
+            .unwrap_or(true);
+        self.armed.load(Ordering::SeqCst) && elapsed_ok
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -297,4 +325,111 @@ pub fn launch_screen_snip(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn quit_app(app: AppHandle) {
     app.exit(0);
+}
+
+/// Opens or updates a separate always-on-top floating detail viewer window (`detail-viewer`)
+/// sized comfortably outside the docked sliding panel, closing automatically when focus is lost.
+#[tauri::command]
+pub async fn open_floating_viewer(
+    app: AppHandle,
+    state: State<'_, ViewerState>,
+    payload_json: String,
+) -> Result<(), String> {
+    if let Ok(mut guard) = state.payload_json.lock() {
+        *guard = Some(payload_json.clone());
+    }
+    state.armed.store(false, Ordering::SeqCst);
+    if let Ok(mut ts) = state.opened_at.lock() {
+        *ts = Some(Instant::now());
+    }
+
+    let monitors = enumerate_monitors(&app);
+    let target_monitor = app
+        .get_webview_window("main")
+        .and_then(|w| w.current_monitor().ok().flatten())
+        .and_then(|cm| {
+            let pos = cm.position();
+            monitors.iter().find(|m| {
+                pos.x >= m.x
+                    && pos.x < m.x + m.width as i32
+                    && pos.y >= m.y
+                    && pos.y < m.y + m.height as i32
+            })
+        })
+        .or_else(|| monitors.iter().find(|m| m.is_primary))
+        .or_else(|| monitors.first());
+
+    let (logical_w, logical_h, logical_x, logical_y) = if let Some(m) = target_monitor {
+        let scale = if m.scale_factor > 0.1 { m.scale_factor } else { 1.0 };
+        let work_w = m.width as f64 / scale;
+        let work_h = m.height as f64 / scale;
+        let work_x = m.x as f64 / scale;
+        let work_y = m.y as f64 / scale;
+        let w = (work_w * 0.85).min(760.0).max(460.0);
+        let h = (work_h * 0.85).min(640.0).max(420.0);
+        let x = work_x + (work_w - w) / 2.0;
+        let y = work_y + (work_h - h) / 2.0;
+        (w, h, x, y)
+    } else {
+        (720.0, 600.0, 120.0, 80.0)
+    };
+
+    if let Some(existing) = app.get_webview_window("detail-viewer") {
+        let _ = existing.emit("viewer-payload-updated", payload_json);
+        let _ = existing.set_size(tauri::LogicalSize::new(logical_w, logical_h));
+        let _ = existing.set_position(tauri::LogicalPosition::new(logical_x, logical_y));
+        let _ = existing.show();
+        let _ = existing.set_focus();
+        state.mark_focused();
+        return Ok(());
+    }
+
+    let viewer = WebviewWindowBuilder::new(
+        &app,
+        "detail-viewer",
+        WebviewUrl::App("index.html".into()),
+    )
+    .initialization_script("window.__ICT_VIEWER_WINDOW__ = true;")
+    .title("Detail View — ICT Trading Panel")
+    .inner_size(logical_w, logical_h)
+    .position(logical_x, logical_y)
+    .min_inner_size(420.0, 320.0)
+    .decorations(false)
+    .transparent(false)
+    .shadow(true)
+    .background_color(tauri::window::Color(2, 6, 23, 255))
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .resizable(true)
+    .focused(true)
+    .build()
+    .map_err(|e| e.to_string())?;
+
+    let _ = viewer.set_focus();
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_floating_viewer_payload(state: State<'_, ViewerState>) -> Option<String> {
+    state.payload_json.lock().ok().and_then(|g| g.clone())
+}
+
+#[tauri::command]
+pub fn close_floating_viewer(app: AppHandle) {
+    if let Some(w) = app.get_webview_window("detail-viewer") {
+        let _ = w.close();
+    }
+}
+
+#[tauri::command]
+pub fn request_viewer_edit(app: AppHandle, kind: String, id: String) {
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.emit(
+            "viewer-request-edit",
+            serde_json::json!({ "kind": kind, "id": id }),
+        );
+    }
+    if let Some(w) = app.get_webview_window("detail-viewer") {
+        let _ = w.close();
+    }
 }

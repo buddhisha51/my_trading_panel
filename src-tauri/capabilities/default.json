@@ -3,11 +3,14 @@
   "identifier": "default",
   "description": "ICT / SMC Trading Panel default capabilities",
   "windows": [
-    "main"
+    "main",
+    "detail-viewer"
   ],
   "permissions": [
     "core:default",
+    "core:event:default",
     "core:window:default",
+    "core:window:allow-close",
     "core:window:allow-set-always-on-top",
     "core:window:allow-set-position",
     "core:window:allow-set-size",

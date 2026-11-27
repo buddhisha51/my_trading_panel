@@ -81,6 +81,7 @@ pub fn run() {
                 db_path,
                 app_data_dir,
             });
+            app.manage(commands::window_mgmt::ViewerState::default());
 
             // Position collapsed edge strip cleanly on the persisted monitor work_area before showing,
             // preventing a startup center-screen or wrong-monitor flash.
@@ -185,6 +186,21 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if window.label() == "detail-viewer" {
+                let state = window.state::<commands::window_mgmt::ViewerState>();
+                match event {
+                    WindowEvent::Focused(true) => {
+                        state.mark_focused();
+                    }
+                    WindowEvent::Focused(false) => {
+                        if state.should_close_on_blur() {
+                            let _ = window.close();
+                        }
+                    }
+                    _ => {}
+                }
+                return;
+            }
             if let WindowEvent::ScaleFactorChanged { .. } = event {
                 let _ = window.emit("display-metrics-changed", ());
             }
@@ -202,6 +218,10 @@ pub fn run() {
             commands::window_mgmt::enforce_always_on_top,
             commands::window_mgmt::launch_screen_snip,
             commands::window_mgmt::quit_app,
+            commands::window_mgmt::open_floating_viewer,
+            commands::window_mgmt::get_floating_viewer_payload,
+            commands::window_mgmt::close_floating_viewer,
+            commands::window_mgmt::request_viewer_edit,
             commands::db_ops::get_all_settings,
             commands::db_ops::set_setting,
             commands::db_ops::set_settings_batch,

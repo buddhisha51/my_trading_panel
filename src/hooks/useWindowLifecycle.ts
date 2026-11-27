@@ -4,6 +4,7 @@ import { tauriBridge } from '../services/tauriBridge';
 import { useDockStore } from '../stores/dockStore';
 import { useMarketStore } from '../stores/marketStore';
 import { useSettingsStore } from '../stores/settingsStore';
+import { useViewerStore } from '../stores/viewerStore';
 import type { HotkeyActionId } from '../types/hotkeys';
 import { getUpcomingHighImpactAlerts } from '../utils/calendarAlerts';
 import { matchesAccelerator } from '../utils/hotkeyUtils';
@@ -116,6 +117,7 @@ export function useWindowLifecycle() {
     let unlistenDrag: (() => void) | undefined;
     let unlistenData: (() => void) | undefined;
     let unlistenTray: (() => void) | undefined;
+    let unlistenViewerEdit: (() => void) | undefined;
     let mounted = true;
 
     void tauriBridge.onDisplayMetricsChanged(() => {
@@ -146,14 +148,26 @@ export function useWindowLifecycle() {
       else fn();
     });
 
+    void tauriBridge.onViewerRequestEdit(({ kind, id }) => {
+      useViewerStore.getState().triggerEditRequest(kind, id);
+      const dock = useDockStore.getState();
+      if (dock.phase === 'collapsed' || dock.phase === 'collapsing') {
+        void expandPanel();
+      }
+    }).then((fn) => {
+      if (mounted) unlistenViewerEdit = fn;
+      else fn();
+    });
+
     return () => {
       mounted = false;
       if (unlistenMetrics) unlistenMetrics();
       if (unlistenDrag) unlistenDrag();
       if (unlistenData) unlistenData();
       if (unlistenTray) unlistenTray();
+      if (unlistenViewerEdit) unlistenViewerEdit();
     };
-  }, [completeDragSnap, hydrated, loadMarketData, reapplyBounds]);
+  }, [completeDragSnap, expandPanel, hydrated, loadMarketData, reapplyBounds]);
 
   // Local window keyboard shortcuts (Cheat Sheet Ctrl+/, Settings Ctrl+,, Escape, and configurable hotkeys fallback)
   useEffect(() => {

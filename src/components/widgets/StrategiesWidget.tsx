@@ -21,6 +21,7 @@ import {
   ArrowUp,
   CheckSquare,
   Edit3,
+  Eye,
   GripVertical,
   Layers,
   Plus,
@@ -29,9 +30,11 @@ import {
   Star,
   Trash2,
 } from 'lucide-react';
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { tauriBridge } from '../../services/tauriBridge';
+import { useSettingsStore } from '../../stores/settingsStore';
 import { useStrategiesStore } from '../../stores/strategiesStore';
+import { useViewerStore } from '../../stores/viewerStore';
 import {
   EMPTY_TIPTAP_DOC,
   parseCanvasDocument,
@@ -43,6 +46,7 @@ import { blobToImagePayload } from '../../utils/imageClipboard';
 import { evaluateSetupChecklist, gradeColor } from '../../utils/strategyGrade';
 import { CanvasMiniPreview } from '../canvas/CanvasMiniPreview';
 import { RichTextEditor } from '../editor/RichTextEditor';
+import { PreviewFloatingViewerPortal } from '../viewer/FloatingDetailViewer';
 
 const DrawingCanvas = lazy(() =>
   import('../canvas/DrawingCanvas').then((m) => ({ default: m.DrawingCanvas })),
@@ -199,6 +203,14 @@ function createNewStrategyDraft(nextOrder: number): StrategyDraft {
 }
 
 export function StrategiesWidget() {
+  const canvasTools = useSettingsStore((s) => s.settings.canvasTools);
+  const displayTimezone = useSettingsStore((s) => s.settings.displayTimezone);
+  const timeFormat = useSettingsStore((s) => s.settings.timeFormat);
+
+  const openViewer = useViewerStore((s) => s.openViewer);
+  const editRequest = useViewerStore((s) => s.editRequest);
+  const clearEditRequest = useViewerStore((s) => s.clearEditRequest);
+
   const strategies = useStrategiesStore((s) => s.strategies);
   const loading = useStrategiesStore((s) => s.loading);
   const saving = useStrategiesStore((s) => s.saving);
@@ -221,6 +233,40 @@ export function StrategiesWidget() {
   useEffect(() => {
     void loadStrategies();
   }, [loadStrategies]);
+
+  const openStrategyEdit = useCallback((strategy: StrategyItem) => {
+    const nextDraft = toStrategyDraft(strategy);
+    setDraft(nextDraft);
+    setShowEditCanvas(
+      nextDraft.canvasDoc.shapes.length > 0 ||
+        Boolean(nextDraft.canvasDoc.backgroundAttachmentPath),
+    );
+  }, []);
+
+  const handleViewStrategy = async (strategy: StrategyItem) => {
+    const attachments =
+      attachmentsByStrategyId[strategy.id] ??
+      (await tauriBridge.listAttachments('strategies', strategy.id));
+    await openViewer({
+      kind: 'strategy',
+      strategy,
+      attachments,
+      checkedRuleIds: checkedRuleIdsByStrategy[strategy.id] ?? [],
+      canvasTools,
+      displayTimezone,
+      timeFormat,
+    });
+  };
+
+  useEffect(() => {
+    if (editRequest?.kind !== 'strategy') return;
+    const match = strategies.find((s) => s.id === editRequest.id);
+    if (match) {
+      setSelectedStrategyId(match.id);
+      openStrategyEdit(match);
+    }
+    clearEditRequest();
+  }, [clearEditRequest, editRequest, openStrategyEdit, strategies]);
 
   useEffect(() => {
     if (!selectedStrategyId && strategies.length > 0) {
@@ -560,7 +606,11 @@ export function StrategiesWidget() {
       ) : (
         <div className="space-y-2">
           {/* Strategy Header + Live Grade Pill */}
-          <div className="flex items-start justify-between gap-2 rounded-md border border-slate-800 bg-slate-950/75 p-2">
+          <div
+            onClick={() => void handleViewStrategy(activeStrategy)}
+            title="Click to open floating playbook view"
+            className="flex cursor-pointer items-start justify-between gap-2 rounded-md border border-slate-800 bg-slate-950/75 p-2 transition-colors hover:border-slate-700 hover:bg-slate-900/90"
+          >
             <div className="min-w-0 flex-1">
               <div className="truncate font-semibold text-slate-100">{activeStrategy.name}</div>
               {activeStrategy.description && (
@@ -585,13 +635,21 @@ export function StrategiesWidget() {
             <div className="flex shrink-0 items-center gap-1">
               <button
                 type="button"
-                onClick={() => {
-                  const nextDraft = toStrategyDraft(activeStrategy);
-                  setDraft(nextDraft);
-                  setShowEditCanvas(
-                    nextDraft.canvasDoc.shapes.length > 0 ||
-                    Boolean(nextDraft.canvasDoc.backgroundAttachmentPath),
-                  );
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void handleViewStrategy(activeStrategy);
+                }}
+                title="View full playbook"
+                aria-label="View full playbook"
+                className="rounded border border-slate-800 bg-slate-900 p-1 text-slate-400 hover:bg-slate-800 hover:text-emerald-300"
+              >
+                <Eye className="h-3 w-3" />
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openStrategyEdit(activeStrategy);
                 }}
                 title="Edit playbook & checklist"
                 className="rounded border border-slate-800 bg-slate-900 p-1 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
@@ -600,7 +658,10 @@ export function StrategiesWidget() {
               </button>
               <button
                 type="button"
-                onClick={() => void deleteStrategy(activeStrategy.id)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void deleteStrategy(activeStrategy.id);
+                }}
                 title="Delete playbook"
                 className="rounded border border-slate-800 bg-slate-900 p-1 text-slate-400 hover:bg-slate-800 hover:text-rose-400"
               >
@@ -703,12 +764,8 @@ export function StrategiesWidget() {
 
             return (
               <div
-                onClick={() => {
-                  const nextDraft = toStrategyDraft(activeStrategy);
-                  setDraft(nextDraft);
-                  setShowEditCanvas(true);
-                }}
-                title="Click to inspect or edit playbook diagram & screenshots"
+                onClick={() => void handleViewStrategy(activeStrategy)}
+                title="Click to open floating playbook view"
                 className="cursor-pointer space-y-1.5 rounded-md border border-slate-800 bg-slate-950/75 p-2 transition-colors hover:border-slate-700"
               >
                 <div className="flex items-center justify-between text-[10px] text-slate-400">
@@ -763,8 +820,9 @@ export function StrategiesWidget() {
               </div>
                   );
           })()}
-                </div>
+        </div>
       )}
-              </div>
-            );
-          }
+      <PreviewFloatingViewerPortal kind="strategy" />
+    </div>
+  );
+}

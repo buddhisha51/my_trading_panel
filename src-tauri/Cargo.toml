@@ -1,6 +1,6 @@
 [package]
 name = "ict-smc-trading-panel"
-version = "0.1.0"
+version = "0.1.1"
 description = "Customizable always-on-top slide-out ICT / SMC Forex Trading Assistant Panel"
 authors = ["Trading Panel Team"]
 edition = "2021"

@@ -218,15 +218,16 @@ Local NSIS installer output is written to:
 
 ## Cutting a Release (GitHub Actions)
 
-1. Confirm `version` matches across:
-   - `package.json`
-   - `src-tauri/Cargo.toml`
-   - `src-tauri/tauri.conf.json`
-2. *(Optional)* Test the release pipeline without creating a GitHub Release by running **Actions → Release (Windows NSIS)** (`workflow_dispatch`) with `dry_run: true` to upload the `.exe` + `SHA256SUMS.txt` as workflow artifacts.
-3. Push a matching version tag:
+`package.json` is the single source of truth for the app version: the UI reads it directly via Vite (`__APP_VERSION__`), and `scripts/sync-version.mjs` keeps `package-lock.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, and `src-tauri/tauri.conf.json` in sync.
+
+1. Bump, sync, commit, and tag in **one command** (or edit `package.json` and run `npm.cmd run version:sync`):
    ```powershell
-   git tag v0.1.0
-   git push origin v0.1.0
+   npm.cmd version patch   # or: npm.cmd version 0.1.2
+   ```
+2. *(Optional)* Test the release pipeline without creating a GitHub Release by running **Actions → Release (Windows NSIS)** (`workflow_dispatch`) with `dry_run: true` to upload the `.exe` + `SHA256SUMS.txt` as workflow artifacts.
+3. Push `main` and the new version tag:
+   ```powershell
+   git push origin main --follow-tags
    ```
    `.github/workflows/release.yml` verifies version/tag parity, runs `npm run build`, `npm test`, and `cargo test`, builds the NSIS setup `.exe`, generates `SHA256SUMS.txt`, and creates a **Draft GitHub Release** for review before publishing.
 

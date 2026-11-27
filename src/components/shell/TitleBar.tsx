@@ -78,10 +78,15 @@ import { formatZoneClock, NY_TIMEZONE } from '../../utils/timezone';
           >
             <GripVertical className="h-4 w-4" />
           </div>
-          <div className="flex flex-col leading-tight">
-            <span className="text-xs font-semibold tracking-wide text-slate-100">
-              ICT / SMC Panel
-            </span>
+          <div className="flex min-w-0 flex-col leading-tight">
+            <div className="flex items-center gap-1.5">
+              <span className="truncate text-xs font-semibold tracking-wide text-slate-100">
+                ICT / SMC Panel
+              </span>
+              <span className="shrink-0 rounded bg-slate-800/90 px-1 py-0.5 font-mono text-[9px] font-medium text-slate-400">
+                v{__APP_VERSION__}
+              </span>
+            </div>
             <span className="truncate text-[10px] text-slate-400">
               {edge.toUpperCase()} • {formatMonitorLabel(activeMonitorId)}
             </span>

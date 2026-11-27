@@ -112,10 +112,11 @@ describe('Milestone 5 Polish: Hotkey Cheat Sheet, Key Recorder & Backup Round-Tr
     );
   });
 
-  it('invokes quitApp from both TitleBar and FullScreenDashboard Quit buttons', async () => {
+  it('invokes quitApp and displays app version in both TitleBar and FullScreenDashboard', async () => {
     const quitSpy = vi.spyOn(tauriBridge, 'quitApp').mockResolvedValue();
 
     const { unmount } = render(<TitleBar />);
+    expect(screen.getByText(`v${__APP_VERSION__}`)).toBeTruthy();
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /Quit Application/i }));
     });
@@ -123,6 +124,7 @@ describe('Milestone 5 Polish: Hotkey Cheat Sheet, Key Recorder & Backup Round-Tr
     unmount();
 
     render(<FullScreenDashboard />);
+    expect(screen.getByText(`v${__APP_VERSION__}`)).toBeTruthy();
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /Quit Application/i }));
     });

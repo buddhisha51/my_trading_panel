@@ -37,9 +37,14 @@ export function FullScreenDashboard() {
         <div className="flex items-center gap-3">
           <Layers className="h-5 w-5 text-blue-400" />
           <div>
-            <h1 className="text-sm font-semibold tracking-wide">
-              ICT / SMC Trading Workspace — Full-Screen Mode
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-sm font-semibold tracking-wide">
+                ICT / SMC Trading Workspace — Full-Screen Mode
+              </h1>
+              <span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] font-medium text-slate-400">
+                v{__APP_VERSION__}
+              </span>
+            </div>
             <p className="text-[11px] text-slate-400">
               {light.label} • Local {formatZoneClock(now, displayTimezone, timeFormat)} • NY{' '}
               {formatZoneClock(now, NY_TIMEZONE, timeFormat)}

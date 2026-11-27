@@ -1,10 +1,11 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { tauriBridge } from '../../../services/tauriBridge';
 import { useDockStore } from '../../../stores/dockStore';
 import { useSettingsStore } from '../../../stores/settingsStore';
 import { DEFAULT_HOTKEYS } from '../../../types/hotkeys';
 import { SettingsOverlay } from '../../settings/SettingsOverlay';
+import { FullScreenDashboard } from '../FullScreenDashboard';
 import { HotkeySheetModal } from '../HotkeySheetModal';
 import { TitleBar } from '../TitleBar';
 
@@ -109,5 +110,24 @@ describe('Milestone 5 Polish: Hotkey Cheat Sheet, Key Recorder & Backup Round-Tr
     await expect(tauriBridge.importBackup(invalidBytes, 'merge')).rejects.toThrow(
       'Invalid backup archive format',
     );
+  });
+
+  it('invokes quitApp from both TitleBar and FullScreenDashboard Quit buttons', async () => {
+    const quitSpy = vi.spyOn(tauriBridge, 'quitApp').mockResolvedValue();
+
+    const { unmount } = render(<TitleBar />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Quit Application/i }));
+    });
+    expect(quitSpy).toHaveBeenCalledTimes(1);
+    unmount();
+
+    render(<FullScreenDashboard />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Quit Application/i }));
+    });
+    expect(quitSpy).toHaveBeenCalledTimes(2);
+
+    quitSpy.mockRestore();
   });
 });

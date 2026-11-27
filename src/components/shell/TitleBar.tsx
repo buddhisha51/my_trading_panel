@@ -9,10 +9,12 @@ import {
   Maximize2,
   Pin,
   PinOff,
+  Power,
   Settings,
 } from 'lucide-react';
 import { DateTime } from 'luxon';
 import { memo, useEffect, useState } from 'react';
+import { tauriBridge } from '../../services/tauriBridge';
 import { useDockStore } from '../../stores/dockStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { formatMonitorLabel } from '../../utils/dockMath';
@@ -167,6 +169,18 @@ import { formatZoneClock, NY_TIMEZONE } from '../../utils/timezone';
               <CollapseIcon className="h-3.5 w-3.5" />
             </button>
           )}
+
+          <div className="mx-0.5 h-3.5 w-px bg-slate-700/70" aria-hidden="true" />
+
+          <button
+            type="button"
+            onClick={() => void tauriBridge.quitApp()}
+            title="Quit ICT Trading Panel"
+            aria-label="Quit Application"
+            className="rounded p-1.5 text-slate-400 transition-colors hover:bg-rose-500/20 hover:text-rose-400"
+          >
+            <Power className="h-3.5 w-3.5" />
+          </button>
         </div>
       </header>
     );

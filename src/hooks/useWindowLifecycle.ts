@@ -115,6 +115,7 @@ export function useWindowLifecycle() {
     let unlistenMetrics: (() => void) | undefined;
     let unlistenDrag: (() => void) | undefined;
     let unlistenData: (() => void) | undefined;
+    let unlistenTray: (() => void) | undefined;
     let mounted = true;
 
     void tauriBridge.onDisplayMetricsChanged(() => {
@@ -138,11 +139,19 @@ export function useWindowLifecycle() {
       else fn();
     });
 
+    void tauriBridge.onTrayAction((action) => {
+      dispatchHotkeyAction.current(action);
+    }).then((fn) => {
+      if (mounted) unlistenTray = fn;
+      else fn();
+    });
+
     return () => {
       mounted = false;
       if (unlistenMetrics) unlistenMetrics();
       if (unlistenDrag) unlistenDrag();
       if (unlistenData) unlistenData();
+      if (unlistenTray) unlistenTray();
     };
   }, [completeDragSnap, hydrated, loadMarketData, reapplyBounds]);
 

@@ -1,6 +1,7 @@
-import { Keyboard, Layers, Minimize2, Settings } from 'lucide-react';
+import { Keyboard, Layers, Minimize2, Power, Settings } from 'lucide-react';
 import { DateTime } from 'luxon';
 import { useEffect, useState } from 'react';
+import { tauriBridge } from '../../services/tauriBridge';
 import { useDockStore } from '../../stores/dockStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { formatZoneClock, getStatusIndicatorLight, NY_TIMEZONE } from '../../utils/timezone';
@@ -74,6 +75,16 @@ export function FullScreenDashboard() {
           >
             <Minimize2 className="h-3.5 w-3.5" />
             Return to {edge.toUpperCase()} Edge
+          </button>
+          <button
+            type="button"
+            onClick={() => void tauriBridge.quitApp()}
+            title="Quit ICT Trading Panel"
+            aria-label="Quit Application"
+            className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:border-rose-500/50 hover:bg-rose-500/15 hover:text-rose-300"
+          >
+            <Power className="h-3.5 w-3.5" />
+            Quit
           </button>
         </div>
       </header>

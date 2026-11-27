@@ -8,6 +8,8 @@ use docking::edge_detector::compute_dock_geometry;
 use docking::multi_monitor::{enumerate_monitors, resolve_monitor};
 use docking::{win32_styles, DockEdge};
 use sqlx::{Row, SqlitePool};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager, WindowEvent};
 
 async fn load_initial_dock_prefs(pool: &SqlitePool) -> (DockEdge, Option<String>, u32, u32) {
@@ -137,6 +139,49 @@ pub fn run() {
                 }
             });
 
+            // Build System Tray icon + menu so users can open/pin/quit even when collapsed or off-taskbar.
+            let toggle_item =
+                MenuItem::with_id(app, "toggle-panel", "Open / Collapse Panel", true, None::<&str>)?;
+            let pin_item =
+                MenuItem::with_id(app, "toggle-pin", "Pin / Unpin Panel", true, None::<&str>)?;
+            let separator = PredefinedMenuItem::separator(app)?;
+            let quit_item =
+                MenuItem::with_id(app, "quit", "Quit ICT Trading Panel", true, None::<&str>)?;
+            let tray_menu =
+                Menu::with_items(app, &[&toggle_item, &pin_item, &separator, &quit_item])?;
+
+            let mut tray_builder = TrayIconBuilder::with_id("main-tray")
+                .menu(&tray_menu)
+                .tooltip("ICT / SMC Trading Panel")
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app_handle, event| match event.id.as_ref() {
+                    "toggle-panel" => {
+                        let _ = app_handle.emit("tray-toggle-panel", ());
+                    }
+                    "toggle-pin" => {
+                        let _ = app_handle.emit("tray-toggle-pin", ());
+                    }
+                    "quit" => {
+                        app_handle.exit(0);
+                    }
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        let _ = tray.app_handle().emit("tray-toggle-panel", ());
+                    }
+                });
+
+            if let Some(icon) = app.default_window_icon().cloned() {
+                tray_builder = tray_builder.icon(icon);
+            }
+            let _ = tray_builder.build(app)?;
+
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -156,6 +201,7 @@ pub fn run() {
             commands::window_mgmt::set_panel_fullscreen,
             commands::window_mgmt::enforce_always_on_top,
             commands::window_mgmt::launch_screen_snip,
+            commands::window_mgmt::quit_app,
             commands::db_ops::get_all_settings,
             commands::db_ops::set_setting,
             commands::db_ops::set_settings_batch,

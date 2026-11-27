@@ -292,3 +292,9 @@ pub fn launch_screen_snip(app: AppHandle) -> Result<(), String> {
         .open_url("ms-screenclip:", None::<&str>)
         .map_err(|e| e.to_string())
 }
+
+/// Exits the entire desktop application process cleanly (used by titlebar Quit button).
+#[tauri::command]
+pub fn quit_app(app: AppHandle) {
+    app.exit(0);
+}

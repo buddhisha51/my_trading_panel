@@ -384,6 +384,18 @@ export const tauriBridge = {
     await invoke('enforce_always_on_top');
   },
 
+  async quitApp(): Promise<void> {
+    if (!isTauriRuntime()) {
+      try {
+        window.close();
+      } catch {
+        // ignore browser preview close restrictions
+      }
+      return;
+    }
+    await invoke('quit_app');
+  },
+
   // --- SQLite Settings & Layout ---
   async getAllSettings(): Promise<Record<string, string>> {
     if (!isTauriRuntime()) {
@@ -1350,5 +1362,15 @@ export const tauriBridge = {
   async onDockDragReleased(cb: () => void): Promise<UnlistenFn> {
     if (!isTauriRuntime()) return () => {};
     return listen('dock-drag-released', cb);
+  },
+
+  async onTrayAction(cb: (action: 'togglePanel' | 'togglePin') => void): Promise<UnlistenFn> {
+    if (!isTauriRuntime()) return () => {};
+    const unlistenToggle = await listen('tray-toggle-panel', () => cb('togglePanel'));
+    const unlistenPin = await listen('tray-toggle-pin', () => cb('togglePin'));
+    return () => {
+      unlistenToggle();
+      unlistenPin();
+    };
   },
 };

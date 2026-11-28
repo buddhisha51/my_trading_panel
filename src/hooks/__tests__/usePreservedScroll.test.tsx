@@ -179,4 +179,53 @@ describe('usePreservedScroll', () => {
     expect(rightStack.scrollTop).toBe(360);
     expect(rightStack.scrollLeft).toBe(0);
   }, 15000);
+
+  it('prevents top-docked widget vertical wheel at top/bottom boundary from panning horizontal widget strip', () => {
+    useSettingsStore.setState({
+      settings: { ...DEFAULT_SETTINGS, edge: 'top' },
+      widgetLayout: DEFAULT_WIDGET_LAYOUT.map((w) => ({ ...w, isCollapsed: false })),
+      hydrated: true,
+    });
+    useDockStore.setState({
+      phase: 'expanded',
+      slideVisible: true,
+      isPinned: false,
+      isAutoLocked: false,
+      isSettingsOpen: false,
+      isHotkeysOpen: false,
+    });
+
+    const { container } = render(<App />);
+    const topStack = container.querySelector('.flex-1.flex-row.overflow-x-auto') as HTMLElement;
+    expect(topStack).toBeTruthy();
+
+    Object.defineProperty(topStack, 'scrollWidth', { value: 3200, configurable: true });
+    Object.defineProperty(topStack, 'clientWidth', { value: 1200, configurable: true });
+    topStack.scrollLeft = 0;
+
+    const firstBody = topStack.querySelector('[data-widget-body="true"]') as HTMLElement;
+    expect(firstBody).toBeTruthy();
+    expect(firstBody.className).toContain('overscroll-y-contain');
+    Object.defineProperty(firstBody, 'scrollHeight', { value: 600, configurable: true });
+    Object.defineProperty(firstBody, 'clientHeight', { value: 240, configurable: true });
+
+    // Scrolling past bottom inside a scrollable widget body must NOT pan the horizontal strip
+    firstBody.scrollTop = 360;
+    const innerEl = (firstBody.firstElementChild as HTMLElement | null) ?? firstBody;
+    fireEvent.wheel(innerEl, { deltaY: 120 });
+    expect(topStack.scrollLeft).toBe(0);
+
+    // Scrolling past top inside a scrollable widget body must NOT pan the horizontal strip either
+    firstBody.scrollTop = 0;
+    fireEvent.wheel(innerEl, { deltaY: -120 });
+    expect(topStack.scrollLeft).toBe(0);
+
+    // Holding Shift+Wheel allows horizontal strip scrolling even over a scrollable widget body
+    fireEvent.wheel(innerEl, { deltaY: 140, shiftKey: true });
+    expect(topStack.scrollLeft).toBe(140);
+
+    // Wheeling on the strip gap between widgets still scrolls horizontally
+    fireEvent.wheel(topStack, { deltaY: 100 });
+    expect(topStack.scrollLeft).toBe(240);
+  }, 15000);
 });

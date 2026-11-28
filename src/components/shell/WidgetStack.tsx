@@ -127,26 +127,37 @@ export function WidgetStack({ now, layout }: WidgetStackProps) {
   const handleHorizontalWheel =
     layout === 'horizontal'
       ? (e: React.WheelEvent<HTMLDivElement>) => {
-          if (Math.abs(e.deltaX) > Math.abs(e.deltaY) || e.deltaY === 0) return;
-          const container = e.currentTarget;
+        if (e.defaultPrevented || e.ctrlKey || e.metaKey) return;
+        if (Math.abs(e.deltaX) > Math.abs(e.deltaY) || e.deltaY === 0) return;
+
+        const container = e.currentTarget;
+        if (!e.shiftKey) {
           let node = e.target as HTMLElement | null;
           while (node && node !== container) {
+            if (
+              node.matches(
+                '[data-canvas-active="true"], [data-shortcut-popover="true"], textarea, select',
+              )
+            ) {
+              return;
+            }
             const overflowY = window.getComputedStyle(node).overflowY;
-            const canScrollY =
-              (overflowY === 'auto' || overflowY === 'scroll') &&
-              node.scrollHeight > node.clientHeight + 1;
-            if (canScrollY) {
-              const atTop = node.scrollTop <= 0 && e.deltaY < 0;
-              const atBottom =
-                node.scrollTop + node.clientHeight >= node.scrollHeight - 1 && e.deltaY > 0;
-              if (!atTop && !atBottom) return;
+            const allowsVerticalScroll =
+              overflowY === 'auto' ||
+              overflowY === 'scroll' ||
+              node.dataset.widgetBody === 'true';
+            // Stay strictly vertical inside any scrollable widget/sub-panel even at top/bottom bounds
+            if (allowsVerticalScroll && node.scrollHeight > node.clientHeight + 1) {
+              return;
             }
             node = node.parentElement;
           }
-          if (container.scrollWidth > container.clientWidth) {
-            container.scrollLeft += e.deltaY;
-          }
         }
+
+        if (container.scrollWidth > container.clientWidth) {
+          container.scrollLeft += e.deltaY;
+        }
+      }
       : undefined;
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -254,13 +265,12 @@ export function WidgetStack({ now, layout }: WidgetStackProps) {
       const hasUnprotected = unprotectedOngoing.length > 0;
       return (
         <span
-          className={`rounded px-1.5 py-0.5 font-mono text-[10px] font-medium ${
-            hasCriticalSl
+          className={`rounded px-1.5 py-0.5 font-mono text-[10px] font-medium ${hasCriticalSl
               ? 'bg-rose-500/20 text-rose-300'
               : hasUnprotected
                 ? 'bg-amber-500/20 text-amber-300'
                 : 'bg-slate-800 text-slate-300'
-          }`}
+            }`}
         >
           {hasCriticalSl
             ? `${ongoingCount} • NO SL`
@@ -276,10 +286,10 @@ export function WidgetStack({ now, layout }: WidgetStackProps) {
       return (
         <span
           className={`rounded px-1.5 py-0.5 font-mono text-[10px] font-medium ${ddAlert
-              ? 'bg-rose-500/20 text-rose-300'
-              : pnl >= 0
-                ? 'bg-emerald-500/15 text-emerald-300'
-                : 'bg-rose-500/15 text-rose-300'
+            ? 'bg-rose-500/20 text-rose-300'
+            : pnl >= 0
+              ? 'bg-emerald-500/15 text-emerald-300'
+              : 'bg-rose-500/15 text-rose-300'
             }`}
         >
           {ddAlert ? 'DD ALERT' : `${pnl >= 0 ? '+' : ''}$${pnl.toFixed(0)}`}

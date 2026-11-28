@@ -216,13 +216,14 @@ export const WidgetFrame = memo(function WidgetFrame({
           <>
             <div
               ref={setBodyRef}
+              data-widget-body="true"
               style={
                 !isHorizontalResize && effectiveHeight !== null
                   ? { height: `${effectiveHeight}px` }
                   : undefined
               }
               className={`min-h-0 ${!isHorizontalResize && effectiveHeight !== null ? '' : 'max-h-[540px] '
-                }overflow-y-auto border-t border-slate-800/80 px-2.5 py-2.5`}
+                }overflow-y-auto overscroll-y-contain border-t border-slate-800/80 px-2.5 py-2.5`}
             >
               {children}
             </div>

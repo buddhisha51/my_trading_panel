@@ -75,6 +75,8 @@ export function calculatePositionSize(
     riskDollars: 0,
     riskPercent: 0,
     effectiveTickValuePerLot,
+    riskPerStandardLot: 0,
+    minRiskForMicroLot: 0,
     slPriceDelta: 0,
     slTicks: 0,
     rawLotSize: 0,
@@ -142,10 +144,11 @@ export function calculatePositionSize(
   const rawLotSize = computedRiskDollars / riskPerStandardLot;
   // Tiny 1e-9 epsilon prevents IEEE-754 ULP drift (e.g. 0.8999999999999999) from dropping 0.90 -> 0.89.
   const roundedLotSize = Math.floor(rawLotSize * 100 + 1e-9) / 100;
+  const minRiskForMicroLot = riskPerStandardLot * 0.01;
 
   let warning: string | null = null;
   if (roundedLotSize < 0.01) {
-    warning = 'Below 0.01 micro-lot minimum — reduce SL distance or increase risk.';
+    warning = `Exact size is ${rawLotSize.toFixed(4)} lots (< 0.01 min). Need >= $${minRiskForMicroLot.toFixed(2)} risk or tighter SL for 0.01 lots.`;
   } else if (computedRiskPercent > 3) {
     warning = `High single-trade risk (${computedRiskPercent.toFixed(1)}% of equity).`;
   }
@@ -181,6 +184,8 @@ export function calculatePositionSize(
     riskDollars: computedRiskDollars,
     riskPercent: computedRiskPercent,
     effectiveTickValuePerLot,
+    riskPerStandardLot,
+    minRiskForMicroLot,
     slPriceDelta,
     slTicks,
     rawLotSize,
@@ -191,6 +196,107 @@ export function calculatePositionSize(
     rrRatio,
     rMultiple,
   };
+}
+
+/**
+ * Derives nominal USD tick value for 1.00 lot from `contractSize * tickSize`
+ * with quote currency adjustments where applicable.
+ */
+export function deriveTickValueFromSpec(
+  contractSize: number,
+  tickSize: number,
+  spec: InstrumentSpec,
+  rates: Partial<ConversionRates> = {},
+): number {
+  const base = Math.max(0, contractSize) * Math.max(0, tickSize);
+  if (base <= 0) return spec.tickValuePerLot;
+  const resolved: ConversionRates = { ...DEFAULT_CONVERSION_RATES, ...rates };
+  if (spec.conversionMode === 'fixed_usd') return base;
+  if (spec.conversionMode === 'inverse_entry' || spec.conversionMode === 'inverse_usdjpy') {
+    return base; // stored nominal (e.g. 1000 JPY = 100,000 * 0.01) before USD division
+  }
+  if (spec.conversionMode === 'multiply_gbpusd') {
+    return base; // stored GBP nominal before GBPUSD multiply
+  }
+  if (spec.conversionMode === 'inverse_usdcad') return base / Math.max(0.1, resolved.usdCad);
+  if (spec.conversionMode === 'inverse_usdchf') return base / Math.max(0.1, resolved.usdChf);
+  return base;
+}
+
+/**
+ * Produces a concise human-readable broker contract math readout (e.g. "$10.00 / pip per 1.00 lot"
+ * or "$100.00 / 1.00 move ($1.00 / tick) per 1.00 lot").
+ */
+export function formatContractMathReadout(
+  spec: InstrumentSpec,
+  effectiveTickValuePerLot: number,
+): string {
+  const tickStr = `$${effectiveTickValuePerLot.toFixed(2)}/${spec.tickLabel}`;
+  if (spec.tickSize > 0 && spec.tickSize < 1) {
+    const perUnitMove = effectiveTickValuePerLot / spec.tickSize;
+    if (perUnitMove >= 1 && spec.instrumentClass !== 'usd_quote_fx' && spec.instrumentClass !== 'usd_base_fx' && spec.instrumentClass !== 'cross_fx') {
+      return `$${perUnitMove.toFixed(2)} per 1.00 move (${tickStr}) per 1.00 lot`;
+    }
+  }
+  return `${tickStr} per 1.00 lot`;
+}
+
+export interface PriceScaleMismatchSuggestion {
+  suggestedSymbol: string;
+  reason: string;
+}
+
+/**
+ * Detects obvious price-scale mismatches (e.g. entering Gold `2650` or Index `20500` prices
+ * while `EURUSD` with `0.0001` pip size is selected, which inflates SL ticks 100x-10000x to 0.00 lots).
+ */
+export function detectPriceScaleMismatch(
+  entryPrice: number | null,
+  stopLoss: number | null,
+  activeSpec: InstrumentSpec,
+  allSpecs: InstrumentSpec[],
+): PriceScaleMismatchSuggestion | null {
+  if (entryPrice === null || !Number.isFinite(entryPrice) || entryPrice <= 0) return null;
+  const sl = stopLoss && Number.isFinite(stopLoss) && stopLoss > 0 ? stopLoss : entryPrice;
+  const avgPrice = (entryPrice + sl) / 2;
+
+  const hasSymbol = (sym: string) => allSpecs.some((s) => s.symbol === sym);
+
+  // FX micro-pip scale (`tickSize <= 0.001`) given large Metal/Index/JPY prices
+  if (activeSpec.tickSize <= 0.001 && avgPrice >= 50) {
+    if (avgPrice >= 5000 && hasSymbol('NAS100')) {
+      return {
+        suggestedSymbol: 'NAS100',
+        reason: `Price ${avgPrice.toFixed(0)} looks like an Index scale while ${activeSpec.symbol} uses ${activeSpec.tickSize} ticks.`,
+      };
+    }
+    if (avgPrice >= 400 && hasSymbol('XAUUSD')) {
+      return {
+        suggestedSymbol: 'XAUUSD',
+        reason: `Price ${avgPrice.toFixed(2)} looks like XAUUSD (Gold) scale while ${activeSpec.symbol} uses ${activeSpec.tickSize} pips.`,
+      };
+    }
+    if (avgPrice >= 50 && avgPrice < 400 && hasSymbol('USDJPY')) {
+      return {
+        suggestedSymbol: 'USDJPY',
+        reason: `Price ${avgPrice.toFixed(2)} looks like a JPY cross while ${activeSpec.symbol} uses ${activeSpec.tickSize} pips.`,
+      };
+    }
+  }
+
+  // Metal / Index scale (`tickSize >= 0.01`, non-JPY) given < 10 FX decimal price
+  if (
+    (activeSpec.instrumentClass === 'index' || activeSpec.instrumentClass === 'metal') &&
+    avgPrice < 10 &&
+    hasSymbol('EURUSD')
+  ) {
+    return {
+      suggestedSymbol: 'EURUSD',
+      reason: `Price ${avgPrice.toFixed(4)} looks like a major FX pair while ${activeSpec.symbol} is selected.`,
+    };
+  }
+
+  return null;
 }
 
 export function suggestTakeProfitForR(

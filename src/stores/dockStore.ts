@@ -19,6 +19,7 @@ interface DockState {
   isPinned: boolean;
   isAutoLocked: boolean;
   isSettingsOpen: boolean;
+  settingsTab: 'dock' | 'appearance' | 'time' | 'zones' | 'keys' | 'widgets';
   isHotkeysOpen: boolean;
   isResizing: boolean;
   isDragging: boolean;
@@ -35,7 +36,11 @@ interface DockState {
   finishCollapseBounds: () => Promise<void>;
   togglePin: () => Promise<void>;
   setAutoLocked: (locked: boolean) => Promise<void>;
-  setSettingsOpen: (open: boolean) => Promise<void>;
+  setSettingsOpen: (
+    open: boolean,
+    tab?: 'dock' | 'appearance' | 'time' | 'zones' | 'keys' | 'widgets',
+  ) => Promise<void>;
+  setSettingsTab: (tab: 'dock' | 'appearance' | 'time' | 'zones' | 'keys' | 'widgets') => void;
   setHotkeysOpen: (open: boolean) => Promise<void>;
   setHotkeyConflicts: (conflicts: Partial<Record<HotkeyActionId, string>>) => void;
   setResizing: (resizing: boolean) => void;
@@ -59,6 +64,7 @@ export const useDockStore = create<DockState>()(
     isPinned: false,
     isAutoLocked: false,
     isSettingsOpen: false,
+    settingsTab: 'dock',
     isHotkeysOpen: false,
     isResizing: false,
     isDragging: false,
@@ -280,9 +286,10 @@ export const useDockStore = create<DockState>()(
       await tauriBridge.setFocusable(locked || get().isPinned || get().isSettingsOpen, false);
     },
 
-    setSettingsOpen: async (open) => {
+    setSettingsOpen: async (open, tab) => {
       set((s) => {
         s.isSettingsOpen = open;
+        if (tab) s.settingsTab = tab;
         if (open) s.isHotkeysOpen = false;
       });
       if (open && get().phase === 'collapsed') {
@@ -292,6 +299,12 @@ export const useDockStore = create<DockState>()(
         open || get().isHotkeysOpen || get().isPinned || get().isAutoLocked,
         open,
       );
+    },
+
+    setSettingsTab: (tab) => {
+      set((s) => {
+        s.settingsTab = tab;
+      });
     },
 
     setHotkeysOpen: async (open) => {

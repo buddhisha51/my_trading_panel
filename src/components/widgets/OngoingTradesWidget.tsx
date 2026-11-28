@@ -2,8 +2,10 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
+  FileText,
   Pencil,
   Plus,
+  Radio,
   ShieldAlert,
   Trash2,
   TrendingDown,
@@ -13,8 +15,11 @@ import {
 import { DateTime } from 'luxon';
 import { useEffect, useState } from 'react';
 import { useJournalStore } from '../../stores/journalStore';
+import { useMarketStore } from '../../stores/marketStore';
+import { useNotesStore } from '../../stores/notesStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useStrategiesStore } from '../../stores/strategiesStore';
+import { useViewerStore } from '../../stores/viewerStore';
 import type {
   OngoingStatus,
   OngoingTradeRecord,
@@ -22,6 +27,7 @@ import type {
   TradeOutcome,
 } from '../../types/journal';
 import { getOngoingRiskSummary, inspectOngoingTradeRisk } from '../../utils/alertEngine';
+import { getImminentNewsForPair } from '../../utils/calendarAlerts';
 import { normalizeTradePnl, normalizeTradeR } from '../../utils/drawdownEngine';
 import { evaluateSetupChecklist } from '../../utils/strategyGrade';
 import {
@@ -44,6 +50,7 @@ export function OngoingTradesWidget() {
   const displayTimezone = useSettingsStore((s) => s.settings.displayTimezone);
   const timeFormat = useSettingsStore((s) => s.settings.timeFormat);
   const notificationsEnabled = useSettingsStore((s) => s.settings.notificationsEnabled);
+  const volatilityThresholdMin = useSettingsStore((s) => s.settings.volatilityThresholdMin);
 
   const ongoingTrades = useJournalStore((s) => s.ongoingTrades);
   const saving = useJournalStore((s) => s.saving);
@@ -53,6 +60,11 @@ export function OngoingTradesWidget() {
   const updateOngoingRisk = useJournalStore((s) => s.updateOngoingRisk);
   const deleteOngoingTrade = useJournalStore((s) => s.deleteOngoingTrade);
   const closeOngoingToJournal = useJournalStore((s) => s.closeOngoingToJournal);
+
+  const events = useMarketStore((s) => s.events);
+  const notesList = useNotesStore((s) => s.notes);
+  const triggerEditRequest = useViewerStore((s) => s.triggerEditRequest);
+  const triggerNoteLinkRequest = useViewerStore((s) => s.triggerNoteLinkRequest);
 
   const [editingRiskId, setEditingRiskId] = useState<string | null>(null);
   const [editSlDraft, setEditSlDraft] = useState('');
@@ -493,6 +505,13 @@ export function OngoingTradesWidget() {
             const entryFmt = formatEntryTimestamp(tr.openedAt, displayTimezone, timeFormat, now);
             const elapsedText = formatElapsedDuration(tr.openedAt, now);
             const risk = inspectOngoingTradeRisk(tr);
+            const newsAlert = getImminentNewsForPair(
+              tr.pair,
+              events,
+              now,
+              volatilityThresholdMin || 15,
+            );
+            const linkedNote = notesList.find((n) => n.ongoingTradeId === tr.id);
             const isEditingRisk = editingRiskId === tr.id;
             return (
               <div
@@ -500,7 +519,7 @@ export function OngoingTradesWidget() {
                 className={`space-y-1 rounded-md border bg-slate-950/75 p-2 ${
                   risk.severity === 'critical'
                     ? 'border-rose-500/45'
-                    : risk.severity === 'warning'
+                    : risk.severity === 'warning' || newsAlert
                       ? 'border-amber-500/40'
                       : 'border-slate-800'
                 }`}
@@ -527,9 +546,41 @@ export function OngoingTradesWidget() {
                         {tr.lotSize}L
                       </span>
                     )}
+                    {newsAlert && (
+                      <span
+                        title={newsAlert.message}
+                        className="inline-flex items-center gap-0.5 rounded border border-rose-500/45 bg-rose-500/15 px-1 py-0.5 font-mono text-[8px] font-bold text-rose-300"
+                      >
+                        <Radio className="h-2.5 w-2.5" />
+                        NEWS {Math.max(1, Math.round(newsAlert.minutesUntil))}m
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (linkedNote) {
+                          triggerEditRequest('note', linkedNote.id);
+                        } else {
+                          triggerNoteLinkRequest({
+                            ongoingTradeId: tr.id,
+                            pair: tr.pair,
+                            suggestedTitle: `${tr.pair} ${tr.direction.toUpperCase()} Plan`,
+                          });
+                        }
+                      }}
+                      title={linkedNote ? `Open linked note: ${linkedNote.title}` : 'Create linked note for this trade'}
+                      className={`inline-flex items-center gap-0.5 rounded border px-1.5 py-0.5 text-[9px] font-medium ${
+                        linkedNote
+                          ? 'border-blue-500/45 bg-blue-500/15 text-blue-300 hover:bg-blue-500/25'
+                          : 'border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800'
+                      }`}
+                    >
+                      <FileText className="h-2.5 w-2.5" />
+                      {linkedNote ? 'Note' : '+Note'}
+                    </button>
                     <button
                       type="button"
                       onClick={() => void cycleOngoingStatus(tr)}

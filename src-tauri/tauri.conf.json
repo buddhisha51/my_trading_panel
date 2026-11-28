@@ -24,7 +24,8 @@
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "resizable": false,
-        "visible": false
+        "visible": false,
+        "additionalBrowserArgs": "--autoplay-policy=no-user-gesture-required"
       }
     ],
     "security": {

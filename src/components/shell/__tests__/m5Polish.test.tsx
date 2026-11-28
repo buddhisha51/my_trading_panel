@@ -8,6 +8,7 @@ import { SettingsOverlay } from '../../settings/SettingsOverlay';
 import { FullScreenDashboard } from '../FullScreenDashboard';
 import { HotkeySheetModal } from '../HotkeySheetModal';
 import { TitleBar } from '../TitleBar';
+import { WidgetFrame } from '../WidgetFrame';
 
 describe('Milestone 5 Polish: Hotkey Cheat Sheet, Key Recorder & Backup Round-Trip', () => {
   beforeEach(async () => {
@@ -131,5 +132,40 @@ describe('Milestone 5 Polish: Hotkey Cheat Sheet, Key Recorder & Backup Round-Tr
     expect(quitSpy).toHaveBeenCalledTimes(2);
 
     quitSpy.mockRestore();
+  });
+
+  it('keeps widget shortcuts in WidgetFrame ShortcutHoverPopover and separates Global Keys in SettingsOverlay', async () => {
+    const { DndContext } = await import('@dnd-kit/core');
+    render(
+      <DndContext>
+        <WidgetFrame
+          widgetId="risk-calculator"
+          title="Risk & Lot Calculator"
+          isCollapsed={false}
+          onToggleCollapse={() => {}}
+        >
+          <div>Risk Content</div>
+        </WidgetFrame>
+      </DndContext>,
+    );
+
+    const helpBtn = screen.getByRole('button', { name: 'Risk & Lot Calculator Controls shortcuts' });
+    fireEvent.click(helpBtn);
+
+    const tooltip = screen.getByRole('tooltip');
+    expect(tooltip.getAttribute('data-lock-open')).toBe('true');
+    expect(tooltip.style.width).toContain('min(300px,');
+    expect(tooltip.style.width).toContain('100vw');
+    expect(tooltip.textContent).toContain('Track Trade →');
+    expect(tooltip.textContent).not.toContain('Ctrl + Shift + T');
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Global Keys/i }));
+    });
+    expect(useDockStore.getState().isSettingsOpen).toBe(true);
+    expect(useDockStore.getState().settingsTab).toBe('keys');
+
+    render(<SettingsOverlay initialTab="keys" />);
+    expect(screen.getByRole('button', { name: /Test Chime/i })).toBeTruthy();
   });
 });

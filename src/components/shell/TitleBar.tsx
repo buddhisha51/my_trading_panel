@@ -14,9 +14,10 @@ import {
 } from 'lucide-react';
 import { DateTime } from 'luxon';
 import { memo, useEffect, useState } from 'react';
-import { tauriBridge } from '../../services/tauriBridge';
+import { isTauriRuntime, tauriBridge } from '../../services/tauriBridge';
 import { useDockStore } from '../../stores/dockStore';
 import { useSettingsStore } from '../../stores/settingsStore';
+import type { ReleaseCheckResult } from '../../types/backup';
 import { formatMonitorLabel } from '../../utils/dockMath';
 import { formatZoneClock, NY_TIMEZONE } from '../../utils/timezone';
 
@@ -25,6 +26,7 @@ import { formatZoneClock, NY_TIMEZONE } from '../../utils/timezone';
     const displayTimezone = useSettingsStore((s) => s.settings.displayTimezone);
     const timeFormat = useSettingsStore((s) => s.settings.timeFormat);
     const showDualNyClock = useSettingsStore((s) => s.settings.showDualNyClock);
+    const autoCheckUpdates = useSettingsStore((s) => s.settings.autoCheckUpdates);
 
     const isPinned = useDockStore((s) => s.isPinned);
     const isAutoLocked = useDockStore((s) => s.isAutoLocked);
@@ -40,10 +42,28 @@ import { formatZoneClock, NY_TIMEZONE } from '../../utils/timezone';
     const completeDragSnap = useDockStore((s) => s.completeDragSnap);
 
     const [now, setNow] = useState(() => DateTime.utc());
+    const [updateInfo, setUpdateInfo] = useState<ReleaseCheckResult | null>(null);
+
     useEffect(() => {
       const id = window.setInterval(() => setNow(DateTime.utc()), 1000);
       return () => window.clearInterval(id);
     }, []);
+
+    useEffect(() => {
+      if (!autoCheckUpdates || !isTauriRuntime()) return;
+      let active = true;
+      void tauriBridge
+        .checkGithubRelease(false)
+        .then((res) => {
+          if (active && res.updateAvailable) setUpdateInfo(res);
+        })
+        .catch(() => {
+          // ignore transient network check errors silently
+        });
+      return () => {
+        active = false;
+      };
+    }, [autoCheckUpdates]);
 
     const handleDragStart = (e: React.PointerEvent<HTMLDivElement>) => {
       if (e.button !== 0) return;
@@ -86,6 +106,16 @@ import { formatZoneClock, NY_TIMEZONE } from '../../utils/timezone';
               <span className="shrink-0 rounded bg-slate-800/90 px-1 py-0.5 font-mono text-[9px] font-medium text-slate-400">
                 v{__APP_VERSION__}
               </span>
+              {updateInfo?.updateAvailable && (
+                <button
+                  type="button"
+                  onClick={() => void setSettingsOpen(true, 'keys')}
+                  title={`New release v${updateInfo.latestVersion} available — open Settings → Keys to download`}
+                  className="shrink-0 rounded border border-emerald-500/50 bg-emerald-500/20 px-1 py-0.5 font-mono text-[9px] font-semibold text-emerald-300 hover:bg-emerald-500/30"
+                >
+                  v{updateInfo.latestVersion} ↑
+                </button>
+              )}
             </div>
             <span className="truncate text-[10px] text-slate-400">
               {edge.toUpperCase()} • {formatMonitorLabel(activeMonitorId)}

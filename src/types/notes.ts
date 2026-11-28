@@ -8,6 +8,8 @@ export interface NoteItem {
   pair: string | null;
   session: string | null;
   isPinned: boolean;
+  tradeId?: string | null;
+  ongoingTradeId?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -22,6 +24,8 @@ export interface UpsertNotePayload {
   pair: string | null;
   session: string | null;
   isPinned: boolean;
+  tradeId?: string | null;
+  ongoingTradeId?: string | null;
 }
 
 export interface ChecklistRule {

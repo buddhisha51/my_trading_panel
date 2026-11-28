@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight, GripVertical } from 'lucide-react';
 import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { usePreservedScroll } from '../../hooks/usePreservedScroll';
 import { useDockStore } from '../../stores/dockStore';
+import { ShortcutHoverPopover } from './ShortcutHoverPopover';
 import {
   clampWidgetHeight,
   clampWidgetWidth,
@@ -170,9 +171,8 @@ export const WidgetFrame = memo(function WidgetFrame({
     <section
       ref={setSectionRef}
       style={style}
-      className={`flex ${
-        isHorizontalResize ? 'flex-row' : 'flex-col'
-      } rounded-lg border border-slate-800/95 bg-slate-900/85 shadow-sm ${isDragging ? 'z-30 ring-1 ring-blue-500/60' : ''
+      className={`flex ${isHorizontalResize ? 'flex-row' : 'flex-col'
+        } rounded-lg border border-slate-800/95 bg-slate-900/85 shadow-sm ${isDragging ? 'z-30 ring-1 ring-blue-500/60' : ''
         } ${className}`}
     >
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -206,7 +206,10 @@ export const WidgetFrame = memo(function WidgetFrame({
             </button>
           </div>
 
-          {badge && <div className="shrink-0">{badge}</div>}
+          <div className="flex shrink-0 items-center gap-1">
+            {badge && <div>{badge}</div>}
+            <ShortcutHoverPopover scope={{ type: 'widget', widgetId }} />
+          </div>
         </div>
 
         {!isCollapsed && (
@@ -218,9 +221,8 @@ export const WidgetFrame = memo(function WidgetFrame({
                   ? { height: `${effectiveHeight}px` }
                   : undefined
               }
-              className={`min-h-0 ${
-                !isHorizontalResize && effectiveHeight !== null ? '' : 'max-h-[540px] '
-              }overflow-y-auto border-t border-slate-800/80 px-2.5 py-2.5`}
+              className={`min-h-0 ${!isHorizontalResize && effectiveHeight !== null ? '' : 'max-h-[540px] '
+                }overflow-y-auto border-t border-slate-800/80 px-2.5 py-2.5`}
             >
               {children}
             </div>

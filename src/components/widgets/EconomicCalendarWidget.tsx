@@ -171,6 +171,25 @@ export function EconomicCalendarWidget({ now }: EconomicCalendarWidgetProps) {
     setShowManualForm(false);
   };
 
+  const watchlistCurrencies = useMemo(
+    () => Array.from(expandCalendarTokensToCurrencies(settings.watchlistPairs)),
+    [settings.watchlistPairs],
+  );
+
+  const isWatchlistPresetActive =
+    watchlistCurrencies.length > 0 &&
+    watchlistCurrencies.length === settings.calendarCurrencies.length &&
+    watchlistCurrencies.every((c) => settings.calendarCurrencies.includes(c));
+
+  const applyWatchlistCurrencies = () => {
+    if (watchlistCurrencies.length === 0) return;
+    const mergedOptions = Array.from(new Set([...filterOptions, ...watchlistCurrencies]));
+    void updateSettings({
+      calendarFilterOptions: mergedOptions,
+      calendarCurrencies: watchlistCurrencies,
+    });
+  };
+
   return (
     <div className="space-y-2 text-[11px]">
       {/* Imminent ICT High-Volatility Alert Banner */}
@@ -290,6 +309,20 @@ export function EconomicCalendarWidget({ now }: EconomicCalendarWidgetProps) {
       {/* Currency / Pair & Impact Filter Chips */}
       <div className="space-y-1">
         <div className="flex flex-wrap items-center gap-1">
+          {watchlistCurrencies.length > 0 && (
+            <button
+              type="button"
+              onClick={applyWatchlistCurrencies}
+              title={`Filter to watchlist currencies (${watchlistCurrencies.join(', ')})`}
+              className={`rounded border px-1.5 py-0.5 text-[9px] font-semibold transition-colors ${
+                isWatchlistPresetActive
+                  ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-300'
+                  : 'border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-600'
+              }`}
+            >
+              Watchlist
+            </button>
+          )}
           {filterOptions.map((c) => {
             const active = settings.calendarCurrencies.includes(c);
             const isEditing = editingFilter === c;

@@ -270,4 +270,83 @@ describe('DrawingCanvas & CanvasMiniPreview', () => {
     });
     expect(useSettingsStore.getState().settings.canvasTools.oteLevels[0].ratio).toBe(0.62);
   });
+
+  it('supports Keys hover popover, zoom controls, Stamp ICT templates, single-key B tool, and Ctrl+D duplication', async () => {
+    let latestDoc: CanvasDocument = createEmptyCanvasDocument(560, 340);
+    render(
+      <DrawingCanvas
+        document={latestDoc}
+        onChange={(next) => {
+          latestDoc = next;
+        }}
+        onSaveScreenshotFile={async () => null}
+      />,
+    );
+
+    // Contextual canvas shortcuts popover (separated from Global Hotkeys)
+    const keysBtn = screen.getByRole('button', { name: /ICT Drawing Canvas Shortcuts shortcuts/i });
+    fireEvent.click(keysBtn);
+    const popover = screen.getByRole('tooltip');
+    expect(popover.getAttribute('data-lock-open')).toBe('true');
+    expect(popover.textContent).toContain('Duplicate selected shape');
+    fireEvent.click(keysBtn);
+
+    // Zoom controls
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
+    expect(screen.getByText('115%')).toBeTruthy();
+    fireEvent.click(screen.getByText('115%'));
+    expect(screen.getByText('100%')).toBeTruthy();
+
+    // Stamp 1-click ICT 2022 Model skeleton
+    fireEvent.click(screen.getByRole('button', { name: /Stamp/i }));
+    fireEvent.click(screen.getByRole('button', { name: /ICT 2022 Model/i }));
+    expect(latestDoc.shapes.map((s) => s.type)).toEqual([
+      'liquidity_line',
+      'candle',
+      'mss_arrow',
+      'zone_box',
+    ]);
+
+    // Single-key `b` switches directly to BPR tool and `Duplicate selected shape` clones active selection
+    const wrapper = screen.getByTestId('konva-stage-mock').closest('[data-canvas-active="true"]')!;
+    fireEvent.keyDown(wrapper, { key: 'b' });
+    expect(screen.getByRole('button', { name: 'BPR' }).className).toContain('border-blue-500');
+
+    // Last stamped shape (FVG zone) is selected; duplicate it with Ctrl+D
+    const beforeCount = latestDoc.shapes.length;
+    fireEvent.keyDown(wrapper, { key: 'd', ctrlKey: true });
+    expect(latestDoc.shapes.length).toBe(beforeCount + 1);
+  });
+
+  it('toggles Lock BG on background screenshot without removing the image', async () => {
+    let latestDoc: CanvasDocument = {
+      ...createEmptyCanvasDocument(560, 340),
+      backgroundAttachmentPath: 'notes/test/bg.png',
+      backgroundLocked: false,
+    };
+    const { rerender } = render(
+      <DrawingCanvas
+        document={latestDoc}
+        onChange={(next) => {
+          latestDoc = next;
+        }}
+        onSaveScreenshotFile={async () => null}
+      />,
+    );
+
+    const lockBtn = screen.getByRole('button', { name: 'Lock BG' });
+    fireEvent.click(lockBtn);
+    expect(latestDoc.backgroundLocked).toBe(true);
+
+    rerender(
+      <DrawingCanvas
+        document={latestDoc}
+        onChange={(next) => {
+          latestDoc = next;
+        }}
+        onSaveScreenshotFile={async () => null}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Unlock BG' })).toBeTruthy();
+  });
 });

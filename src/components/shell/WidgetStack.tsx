@@ -16,6 +16,7 @@ import {
 } from '@dnd-kit/sortable';
 import { Layers } from 'lucide-react';
 import { DateTime } from 'luxon';
+import { useEffect } from 'react';
 import { usePreservedScroll } from '../../hooks/usePreservedScroll';
 import { useDailyBiasStore } from '../../stores/dailyBiasStore';
 import { useDockStore } from '../../stores/dockStore';
@@ -24,6 +25,7 @@ import { useMarketStore } from '../../stores/marketStore';
 import { useNotesStore } from '../../stores/notesStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useStrategiesStore } from '../../stores/strategiesStore';
+import { useViewerStore } from '../../stores/viewerStore';
 import { WIDGET_CATALOG, type WidgetId } from '../../types/settings';
 import { inspectOngoingTradeRisk } from '../../utils/alertEngine';
 import { getUpcomingHighImpactAlerts } from '../../utils/calendarAlerts';
@@ -74,7 +76,24 @@ export function WidgetStack({ now, layout }: WidgetStackProps) {
   const newsCount = useMarketStore((s) => s.news.length);
   const setSettingsOpen = useDockStore((s) => s.setSettingsOpen);
   const setReorderingWidgets = useDockStore((s) => s.setReorderingWidgets);
+  const noteLinkRequest = useViewerStore((s) => s.noteLinkRequest);
+  const editRequest = useViewerStore((s) => s.editRequest);
   const stackScrollRef = usePreservedScroll<HTMLDivElement>(`widget-stack:${layout}`);
+
+  // Ensure Quick Notes or Playbooks auto-uncollapse if opened via cross-widget shortcut
+  useEffect(() => {
+    if (noteLinkRequest || editRequest?.kind === 'note') {
+      const qn = widgetLayout.find((w) => w.widgetId === 'quick-notes');
+      if (qn?.isCollapsed) {
+        void toggleWidgetCollapsed('quick-notes');
+      }
+    } else if (editRequest?.kind === 'strategy') {
+      const st = widgetLayout.find((w) => w.widgetId === 'strategies');
+      if (st?.isCollapsed) {
+        void toggleWidgetCollapsed('strategies');
+      }
+    }
+  }, [editRequest, noteLinkRequest, toggleWidgetCollapsed, widgetLayout]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),

@@ -1,5 +1,7 @@
 import {
   CheckSquare,
+  ChevronLeft,
+  ChevronRight,
   Edit3,
   FileText,
   GripVertical,
@@ -12,7 +14,7 @@ import {
   X,
 } from 'lucide-react';
 import { DateTime } from 'luxon';
-import { Component, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Component, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { tauriBridge } from '../../services/tauriBridge';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -23,6 +25,7 @@ import { evaluateSetupChecklist, gradeColor } from '../../utils/strategyGrade';
 import { formatEntryTimestamp } from '../../utils/timezone';
 import { CanvasMiniPreview } from '../canvas/CanvasMiniPreview';
 import { RichTextViewer } from '../editor/RichTextEditor';
+import { ShortcutHoverPopover } from '../shell/ShortcutHoverPopover';
 
 interface DetailViewerCardProps {
   payload: FloatingViewerPayload;
@@ -31,6 +34,7 @@ interface DetailViewerCardProps {
   onStartDrag?: (e: React.PointerEvent<HTMLElement>) => void;
   onClose: () => void;
   onEdit: (kind: 'note' | 'strategy', id: string) => void;
+  onNavigate?: (kind: 'note' | 'strategy', id: string) => void;
   draggableWindow?: boolean;
 }
 
@@ -41,6 +45,7 @@ function DetailViewerCard({
   onStartDrag,
   onClose,
   onEdit,
+  onNavigate,
   draggableWindow = false,
 }: DetailViewerCardProps) {
   const [zoomSrc, setZoomSrc] = useState<string | null>(null);
@@ -69,6 +74,13 @@ function DetailViewerCard({
     !isNote && checkedSet
       ? evaluateSetupChecklist(payload.strategy.checklist, checkedSet)
       : null;
+
+  const siblings = payload.siblings ?? [];
+  const currentIndex = payload.currentIndex ?? -1;
+  const canNavPrev = Boolean(onNavigate && siblings.length > 1 && currentIndex > 0);
+  const canNavNext = Boolean(
+    onNavigate && siblings.length > 1 && currentIndex >= 0 && currentIndex < siblings.length - 1,
+  );
 
   return (
     <div
@@ -110,6 +122,37 @@ function DetailViewerCard({
         </div>
 
         <div className="flex shrink-0 items-center gap-1.5">
+          {siblings.length > 1 && currentIndex >= 0 && onNavigate && (
+            <div className="inline-flex items-center gap-0.5 rounded border border-slate-700 bg-slate-800 px-1 py-0.5 text-[10px] text-slate-300">
+              <button
+                type="button"
+                disabled={!canNavPrev}
+                onClick={() => canNavPrev && onNavigate(payload.kind, siblings[currentIndex - 1].id)}
+                title={canNavPrev ? `Previous: ${siblings[currentIndex - 1].title} (←)` : 'First item'}
+                aria-label="Previous item"
+                className="rounded p-0.5 hover:bg-slate-700 disabled:opacity-30"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </button>
+              <span className="px-1 font-mono text-[9px] text-slate-400">
+                {currentIndex + 1}/{siblings.length}
+              </span>
+              <button
+                type="button"
+                disabled={!canNavNext}
+                onClick={() => canNavNext && onNavigate(payload.kind, siblings[currentIndex + 1].id)}
+                title={canNavNext ? `Next: ${siblings[currentIndex + 1].title} (→)` : 'Last item'}
+                aria-label="Next item"
+                className="rounded p-0.5 hover:bg-slate-700 disabled:opacity-30"
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+          <ShortcutHoverPopover
+            scope={{ type: 'context', context: 'floating-viewer' }}
+            showGlobalShortcutLink={false}
+          />
           <button
             type="button"
             onClick={onTogglePin}
@@ -358,6 +401,7 @@ class ViewerErrorBoundary extends Component<
  */
 export function FloatingDetailViewerWindow() {
   const [payload, setPayload] = useState<FloatingViewerPayload | null>(null);
+  const payloadRef = useRef<FloatingViewerPayload | null>(null);
   const [pathsReady, setPathsReady] = useState(false);
   const [pinned, setPinned] = useState(false);
   const pinnedRef = useRef(false);
@@ -366,6 +410,20 @@ export function FloatingDetailViewerWindow() {
   useEffect(() => {
     pinnedRef.current = pinned;
   }, [pinned]);
+
+  useEffect(() => {
+    payloadRef.current = payload;
+  }, [payload]);
+
+  const handleTogglePin = useCallback(() => {
+    const next = !pinnedRef.current;
+    setPinned(next);
+    pinnedRef.current = next;
+    void tauriBridge.setFloatingViewerPinned(next).then((res) => {
+      setPinned(res);
+      pinnedRef.current = res;
+    });
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -401,6 +459,24 @@ export function FloatingDetailViewerWindow() {
       if (e.key === 'Escape' && !pinnedRef.current) {
         e.preventDefault();
         void tauriBridge.closeFloatingViewer();
+        return;
+      }
+      if (e.key.toLowerCase() === 'p' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        handleTogglePin();
+        return;
+      }
+      const cur = payloadRef.current;
+      const sibs = cur?.siblings ?? [];
+      const idx = cur?.currentIndex ?? -1;
+      if (cur && sibs.length > 1 && idx >= 0) {
+        if (e.key === 'ArrowLeft' && idx > 0) {
+          e.preventDefault();
+          void tauriBridge.requestViewerNavigate(cur.kind, sibs[idx - 1].id);
+        } else if (e.key === 'ArrowRight' && idx < sibs.length - 1) {
+          e.preventDefault();
+          void tauriBridge.requestViewerNavigate(cur.kind, sibs[idx + 1].id);
+        }
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -410,17 +486,7 @@ export function FloatingDetailViewerWindow() {
       if (unlisten) unlisten();
       window.removeEventListener('keydown', onKeyDown);
     };
-  }, [patchSettingsLocal]);
-
-  const handleTogglePin = () => {
-    const next = !pinned;
-    setPinned(next);
-    pinnedRef.current = next;
-    void tauriBridge.setFloatingViewerPinned(next).then((res) => {
-      setPinned(res);
-      pinnedRef.current = res;
-    });
-  };
+  }, [handleTogglePin, patchSettingsLocal]);
 
   if (!pathsReady || !payload) {
     return (
@@ -441,6 +507,7 @@ export function FloatingDetailViewerWindow() {
           draggableWindow
           onClose={() => void tauriBridge.closeFloatingViewer()}
           onEdit={(kind, id) => void tauriBridge.requestViewerEdit(kind, id)}
+          onNavigate={(kind, id) => void tauriBridge.requestViewerNavigate(kind, id)}
         />
       </div>
     </ViewerErrorBoundary>
@@ -449,7 +516,7 @@ export function FloatingDetailViewerWindow() {
 
 /**
  * Browser preview & Vitest fallback modal rendered via portal when `!isTauriRuntime()`,
- * supporting Pin, header dragging, off-click backdrop close (when unpinned), and Escape close.
+ * supporting Pin, header dragging, Prev/Next navigation, off-click close (when unpinned), and Escape close.
  */
 export function PreviewFloatingViewerPortal({ kind }: { kind: 'note' | 'strategy' }) {
   const previewPayload = useViewerStore((s) => s.previewPayload);
@@ -457,6 +524,7 @@ export function PreviewFloatingViewerPortal({ kind }: { kind: 'note' | 'strategy
   const setPreviewPinned = useViewerStore((s) => s.setPreviewPinned);
   const closePreviewViewer = useViewerStore((s) => s.closePreviewViewer);
   const triggerEditRequest = useViewerStore((s) => s.triggerEditRequest);
+  const triggerNavigateRequest = useViewerStore((s) => s.triggerNavigateRequest);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const dragCleanupRef = useRef<(() => void) | null>(null);
 
@@ -471,6 +539,24 @@ export function PreviewFloatingViewerPortal({ kind }: { kind: 'note' | 'strategy
       if (e.key === 'Escape' && !previewPinned) {
         e.preventDefault();
         closePreviewViewer();
+        return;
+      }
+      if (!previewPayload) return;
+      if (e.key.toLowerCase() === 'p' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        setPreviewPinned(!previewPinned);
+        return;
+      }
+      const sibs = previewPayload.siblings ?? [];
+      const idx = previewPayload.currentIndex ?? -1;
+      if (sibs.length > 1 && idx >= 0) {
+        if (e.key === 'ArrowLeft' && idx > 0) {
+          e.preventDefault();
+          triggerNavigateRequest(previewPayload.kind, sibs[idx - 1].id);
+        } else if (e.key === 'ArrowRight' && idx < sibs.length - 1) {
+          e.preventDefault();
+          triggerNavigateRequest(previewPayload.kind, sibs[idx + 1].id);
+        }
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -478,7 +564,14 @@ export function PreviewFloatingViewerPortal({ kind }: { kind: 'note' | 'strategy
       window.removeEventListener('keydown', onKeyDown);
       dragCleanupRef.current?.();
     };
-  }, [closePreviewViewer, previewPinned, visible]);
+  }, [
+    closePreviewViewer,
+    previewPayload,
+    previewPinned,
+    setPreviewPinned,
+    triggerNavigateRequest,
+    visible,
+  ]);
 
   const handleStartPreviewDrag = (e: React.PointerEvent<HTMLElement>) => {
     e.preventDefault();
@@ -529,6 +622,7 @@ export function PreviewFloatingViewerPortal({ kind }: { kind: 'note' | 'strategy
           onStartDrag={handleStartPreviewDrag}
           onClose={closePreviewViewer}
           onEdit={(k, id) => triggerEditRequest(k, id)}
+          onNavigate={(k, id) => triggerNavigateRequest(k, id)}
         />
       </div>
     </div>,

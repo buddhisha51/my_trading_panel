@@ -4,8 +4,10 @@ import {
   CandlestickChart,
   Camera,
   ClipboardPaste,
+  CopyPlus,
   Eraser,
   Layers,
+  Lock,
   Minus,
   MousePointer,
   MoveVertical,
@@ -15,12 +17,16 @@ import {
   Redo2,
   Rows3,
   SlidersHorizontal,
+  Sparkles,
   Square,
   Trash2,
   TrendingUp,
   Type,
   Undo2,
+  Unlock,
   Upload,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -59,6 +65,7 @@ import {
   buildCandleFromDrag,
   buildChannelFromDrag,
   buildFibFromDrag,
+  buildIctPatternTemplate,
   buildImageShape,
   buildLiquidityLineFromDrag,
   buildMssArrowFromDrag,
@@ -69,10 +76,12 @@ import {
   computeFibLevels,
   computeOteFibLevels,
   createCanvasHistory,
+  duplicateCanvasShape,
   fitImageRectToStage,
   pushCanvasHistory,
   redoCanvasHistory,
   undoCanvasHistory,
+  type IctTemplateId,
 } from '../../utils/canvasGeometry';
 import { generateUlid } from '../../utils/id';
 import {
@@ -80,6 +89,7 @@ import {
   launchWindowsScreenSnip,
   readClipboardImageBlob,
 } from '../../utils/imageClipboard';
+import { ShortcutHoverPopover } from '../shell/ShortcutHoverPopover';
 
 interface DrawingCanvasProps {
   document: CanvasDocument;
@@ -97,6 +107,29 @@ const ZONE_TOOL_TO_KIND: Partial<Record<CanvasTool, ZoneBoxShape['kind']>> = {
   order_block: 'OB',
   breaker: 'BB',
 };
+
+const SINGLE_KEY_TOOL_MAP: Record<string, CanvasTool> = {
+  v: 'select',
+  p: 'pen',
+  c: 'candle',
+  r: 'rect',
+  f: 'fvg',
+  i: 'ifvg',
+  b: 'bpr',
+  o: 'order_block',
+  l: 'liquidity',
+  h: 'hline',
+  m: 'mss',
+  t: 'text',
+};
+
+function getStageRelativePointer(stage: Konva.Stage | null | undefined): { x: number; y: number } | null {
+  if (!stage) return null;
+  if (typeof stage.getRelativePointerPosition === 'function') {
+    return stage.getRelativePointerPosition() ?? stage.getPointerPosition() ?? null;
+  }
+  return stage.getPointerPosition() ?? null;
+}
 
 function readBlobImageDimensions(blob: Blob): Promise<{ width: number; height: number }> {
   if (typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') {
@@ -229,8 +262,13 @@ export function DrawingCanvas({
   } | null>(null);
   const [bgImage, setBgImage] = useState<HTMLImageElement | null>(null);
   const [snipPending, setSnipPending] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [spaceHeld, setSpaceHeld] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
 
   const canvasTools = useSettingsStore((s) => s.settings.canvasTools);
+  const bgLocked = Boolean(canvasDoc.backgroundLocked);
 
   const [history, setHistory] = useState(() => createCanvasHistory(canvasDoc.shapes));
   const dragOriginRef = useRef<{ x: number; y: number } | null>(null);
@@ -317,7 +355,7 @@ export function DrawingCanvas({
     }
 
     if (selectedId === BG_NODE_ID) {
-      const bgNode = layer.findOne(`#${BG_NODE_ID}`);
+      const bgNode = bgLocked ? null : layer.findOne(`#${BG_NODE_ID}`);
       tr.nodes(bgNode ? [bgNode] : []);
       tr.getLayer()?.batchDraw();
       return;
@@ -364,6 +402,7 @@ export function DrawingCanvas({
   const handleDeleteSelected = useCallback(() => {
     if (!selectedId) return;
     if (selectedId === BG_NODE_ID) {
+      if (bgLocked) return;
       setSelectedId(null);
       onChange({
         ...canvasDoc,
@@ -376,7 +415,42 @@ export function DrawingCanvas({
     const next = history.present.filter((s) => s.id !== selectedId);
     setSelectedId(null);
     commitShapes(next);
-  }, [canvasDoc, commitShapes, history.present, onChange, selectedId]);
+  }, [bgLocked, canvasDoc, commitShapes, history.present, onChange, selectedId]);
+
+  const handleDuplicateSelected = useCallback(() => {
+    if (!selectedId || selectedId === BG_NODE_ID) return;
+    const target = history.present.find((s) => s.id === selectedId);
+    if (!target) return;
+    const cloned = duplicateCanvasShape(target, 16);
+    commitShapes([...history.present, cloned]);
+    setTool('select');
+    setSelectedId(cloned.id);
+  }, [commitShapes, history.present, selectedId]);
+
+  const handleStampTemplate = useCallback(
+    (templateId: IctTemplateId) => {
+      const cx = (stageSize.width / 2 - pan.x) / zoom;
+      const cy = (stageSize.height / 2 - pan.y) / zoom;
+      const stamped = buildIctPatternTemplate(templateId, cx, cy);
+      commitShapes([...history.present, ...stamped]);
+      setTool('select');
+      setSelectedId(stamped[0]?.id ?? null);
+      setShowTemplates(false);
+    },
+    [commitShapes, history.present, pan.x, pan.y, stageSize.height, stageSize.width, zoom],
+  );
+
+  const toggleBackgroundLock = useCallback(() => {
+    const nextLocked = !bgLocked;
+    if (nextLocked && selectedId === BG_NODE_ID) {
+      setSelectedId(null);
+    }
+    onChange({
+      ...canvasDoc,
+      backgroundLocked: nextLocked,
+      shapes: history.present,
+    });
+  }, [bgLocked, canvasDoc, history.present, onChange, selectedId]);
 
   const attachScreenshotBlob = useCallback(
     async (blob: Blob) => {
@@ -408,22 +482,58 @@ export function DrawingCanvas({
     }
   }, [attachScreenshotBlob]);
 
-  // Listen for Ctrl+Z, Ctrl+Shift+Z, Delete, and Ctrl+V when canvas has focus
+  // Listen for Ctrl+Z, Ctrl+Shift+Z, Ctrl+D, Delete, Ctrl+V, Space-pan, and single-key tools
   useEffect(() => {
     const el = wrapperRef.current;
     if (!el) return;
 
+    const isEditableFocused = () => {
+      const tag = document.activeElement?.tagName;
+      return (
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        tag === 'SELECT' ||
+        Boolean((document.activeElement as HTMLElement | null)?.isContentEditable)
+      );
+    };
+
     const onKeyDown = (e: KeyboardEvent) => {
       if (textDraft) return;
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+      const lower = e.key.toLowerCase();
+      if ((e.ctrlKey || e.metaKey) && lower === 'z') {
         e.preventDefault();
         if (e.shiftKey) handleRedo();
         else handleUndo();
-      } else if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (selectedId && document.activeElement?.tagName !== 'INPUT') {
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && lower === 'd') {
+        if (!isEditableFocused()) {
+          e.preventDefault();
+          handleDuplicateSelected();
+        }
+        return;
+      }
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedId && !isEditableFocused()) {
           e.preventDefault();
           handleDeleteSelected();
         }
+        return;
+      }
+      if (e.code === 'Space' && !e.repeat && !isEditableFocused()) {
+        e.preventDefault();
+        setSpaceHeld(true);
+        return;
+      }
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && !isEditableFocused() && SINGLE_KEY_TOOL_MAP[lower]) {
+        e.preventDefault();
+        setTool(SINGLE_KEY_TOOL_MAP[lower]);
+      }
+    };
+
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        setSpaceHeld(false);
       }
     };
 
@@ -436,12 +546,22 @@ export function DrawingCanvas({
     };
 
     el.addEventListener('keydown', onKeyDown);
+    el.addEventListener('keyup', onKeyUp);
     el.addEventListener('paste', onPaste);
     return () => {
       el.removeEventListener('keydown', onKeyDown);
+      el.removeEventListener('keyup', onKeyUp);
       el.removeEventListener('paste', onPaste);
     };
-  }, [attachScreenshotBlob, handleDeleteSelected, handleRedo, handleUndo, selectedId, textDraft]);
+  }, [
+    attachScreenshotBlob,
+    handleDeleteSelected,
+    handleDuplicateSelected,
+    handleRedo,
+    handleUndo,
+    selectedId,
+    textDraft,
+  ]);
 
   const bgDrawRect = useMemo(() => {
     if (canvasDoc.backgroundRect) return canvasDoc.backgroundRect;
@@ -461,8 +581,9 @@ export function DrawingCanvas({
   }, [bgImage, canvasDoc.backgroundRect, stageSize.height, stageSize.width]);
 
   const handleMouseDown = (e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+    if (spaceHeld) return;
     const stage = e.target.getStage();
-    const pos = stage?.getPointerPosition();
+    const pos = getStageRelativePointer(stage);
     if (!pos) return;
 
     if (tool === 'select') {
@@ -526,9 +647,10 @@ export function DrawingCanvas({
   };
 
   const handleMouseMove = (e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+    if (spaceHeld) return;
     const origin = dragOriginRef.current;
     if (!origin || !draftShape) return;
-    const pos = e.target.getStage()?.getPointerPosition();
+    const pos = getStageRelativePointer(e.target.getStage());
     if (!pos) return;
     dragLastPosRef.current = { x: pos.x, y: pos.y };
 
@@ -1722,7 +1844,7 @@ export function DrawingCanvas({
         )}
       </div>
 
-      {/* Colors, History & Screenshot Capture Bar */}
+      {/* Colors, History, Zoom, Templates & Screenshot Capture Bar */}
       <div className="flex flex-wrap items-center justify-between gap-1 text-[10px]">
         <div className="flex items-center gap-1">
           {PEN_COLORS.map((c) => (
@@ -1741,9 +1863,86 @@ export function DrawingCanvas({
                 }`}
             />
           ))}
+          {(() => {
+            const selObj =
+              selectedId && selectedId !== BG_NODE_ID
+                ? history.present.find((s) => s.id === selectedId)
+                : null;
+            if (
+              !selObj ||
+              (selObj.type !== 'zone_box' && selObj.type !== 'rect' && selObj.type !== 'channel')
+            ) {
+              return null;
+            }
+            return (
+              <label
+                title="Selected fill opacity"
+                className="ml-1 inline-flex items-center gap-1 text-[9px] text-slate-400"
+              >
+                <span>Op</span>
+                <input
+                  type="range"
+                  min={0.08}
+                  max={0.65}
+                  step={0.05}
+                  value={selObj.fillOpacity}
+                  onChange={(e) => {
+                    const nextOp = Number(e.target.value);
+                    updateShapeById(selObj.id, (prev) =>
+                      prev.type === 'zone_box' || prev.type === 'rect' || prev.type === 'channel'
+                        ? { ...prev, fillOpacity: nextOp }
+                        : prev,
+                    );
+                  }}
+                  className="h-1 w-12 accent-blue-500"
+                />
+              </label>
+            );
+          })()}
         </div>
 
         <div className="flex flex-wrap items-center gap-1">
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowTemplates((v) => !v)}
+              title="Insert 1-click ICT setup template"
+              className="inline-flex items-center gap-0.5 rounded border border-slate-800 bg-slate-900 px-1.5 py-0.5 text-slate-300 hover:bg-slate-800"
+            >
+              <Sparkles className="h-3 w-3 text-amber-300" />
+              Stamp
+            </button>
+            {showTemplates && (
+              <div className="absolute right-0 top-6 z-30 w-36 space-y-0.5 rounded border border-slate-700 bg-slate-950 p-1 shadow-xl">
+                <button
+                  type="button"
+                  onClick={() => handleStampTemplate('model_2022')}
+                  className="block w-full rounded px-2 py-1 text-left text-[10px] text-slate-200 hover:bg-slate-800"
+                >
+                  ICT 2022 Model
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleStampTemplate('breaker_bpr')}
+                  className="block w-full rounded px-2 py-1 text-left text-[10px] text-slate-200 hover:bg-slate-800"
+                >
+                  Breaker + BPR
+                </button>
+              </div>
+            )}
+          </div>
+
+          <button
+            type="button"
+            disabled={!selectedId || selectedId === BG_NODE_ID}
+            onClick={handleDuplicateSelected}
+            title="Duplicate selected shape (Ctrl+D)"
+            aria-label="Duplicate selected shape"
+            className="rounded border border-slate-800 bg-slate-900 p-1 text-slate-300 hover:bg-slate-800 disabled:opacity-35"
+          >
+            <CopyPlus className="h-3 w-3" />
+          </button>
+
           <button
             type="button"
             disabled={history.past.length === 0}
@@ -1824,6 +2023,41 @@ export function DrawingCanvas({
             <Camera className="h-3 w-3" />
             Snip
           </button>
+          <div className="inline-flex items-center rounded border border-slate-800 bg-slate-900">
+            <button
+              type="button"
+              onClick={() => setZoom((z) => Math.max(0.5, Number((z - 0.15).toFixed(2))))}
+              title="Zoom out"
+              aria-label="Zoom out"
+              className="p-0.5 text-slate-400 hover:text-white"
+            >
+              <ZoomOut className="h-2.5 w-2.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setZoom(1);
+                setPan({ x: 0, y: 0 });
+              }}
+              title="Reset zoom & pan (100%)"
+              className="px-1 font-mono text-[9px] text-slate-300 hover:text-white"
+            >
+              {Math.round(zoom * 100)}%
+            </button>
+            <button
+              type="button"
+              onClick={() => setZoom((z) => Math.min(2.5, Number((z + 0.15).toFixed(2))))}
+              title="Zoom in"
+              aria-label="Zoom in"
+              className="p-0.5 text-slate-400 hover:text-white"
+            >
+              <ZoomIn className="h-2.5 w-2.5" />
+            </button>
+          </div>
+          <ShortcutHoverPopover
+            scope={{ type: 'context', context: 'canvas' }}
+            label="Keys"
+          />
         </div>
       </div>
 
@@ -1843,11 +2077,45 @@ export function DrawingCanvas({
       {/* Stage Surface */}
       <div
         ref={stageContainerRef}
-        className="relative overflow-hidden rounded border border-slate-800 bg-[#0b1120]"
+        className={`relative overflow-hidden rounded border border-slate-800 bg-[#0b1120] ${
+          spaceHeld ? 'cursor-grab' : ''
+        }`}
       >
         <Stage
           width={stageSize.width}
           height={stageSize.height}
+          scaleX={zoom}
+          scaleY={zoom}
+          x={pan.x}
+          y={pan.y}
+          draggable={spaceHeld}
+          onDragEnd={(ev) => {
+            if (ev.target === ev.target.getStage()) {
+              setPan({ x: ev.target.x(), y: ev.target.y() });
+            }
+          }}
+          onWheel={(ev) => {
+            if (!ev.evt.ctrlKey && !ev.evt.metaKey) return;
+            ev.evt.preventDefault();
+            const stage = ev.target.getStage();
+            const pointer = stage?.getPointerPosition();
+            if (!pointer) return;
+            const scaleBy = 1.1;
+            const oldZoom = zoom;
+            const newZoom = Math.min(
+              2.5,
+              Math.max(0.5, ev.evt.deltaY < 0 ? oldZoom * scaleBy : oldZoom / scaleBy),
+            );
+            const mousePointTo = {
+              x: (pointer.x - pan.x) / oldZoom,
+              y: (pointer.y - pan.y) / oldZoom,
+            };
+            setZoom(Number(newZoom.toFixed(2)));
+            setPan({
+              x: pointer.x - mousePointTo.x * newZoom,
+              y: pointer.y - mousePointTo.y * newZoom,
+            });
+          }}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
@@ -1858,10 +2126,10 @@ export function DrawingCanvas({
           {/* Layer 1: Background Fill */}
           <Layer listening={false}>
             <Rect
-              x={0}
-              y={0}
-              width={stageSize.width}
-              height={stageSize.height}
+              x={-pan.x / zoom}
+              y={-pan.y / zoom}
+              width={stageSize.width / zoom}
+              height={stageSize.height / zoom}
               fill="#0b1120"
             />
           </Layer>
@@ -1875,8 +2143,8 @@ export function DrawingCanvas({
                 y={bgDrawRect.y}
                 width={bgDrawRect.width}
                 height={bgDrawRect.height}
-                listening={tool === 'select'}
-                draggable={tool === 'select'}
+                listening={tool === 'select' && !bgLocked}
+                draggable={tool === 'select' && !bgLocked}
                 onClick={() => tool === 'select' && setSelectedId(BG_NODE_ID)}
                 onTap={() => tool === 'select' && setSelectedId(BG_NODE_ID)}
                 onDragEnd={(ev) => {
@@ -1941,8 +2209,8 @@ export function DrawingCanvas({
               commitTextDraft();
             }}
             style={{
-              left: Math.min(textDraft.x, Math.max(10, stageSize.width - 175)),
-              top: Math.min(textDraft.y, Math.max(10, stageSize.height - 38)),
+              left: Math.min(textDraft.x * zoom + pan.x, Math.max(10, stageSize.width - 175)),
+              top: Math.min(textDraft.y * zoom + pan.y, Math.max(10, stageSize.height - 38)),
             }}
             className="absolute z-20 flex items-center gap-1 rounded border border-blue-500 bg-slate-950 p-1 shadow-lg"
           >
@@ -1981,21 +2249,38 @@ export function DrawingCanvas({
         )}
 
         {canvasDoc.backgroundAttachmentPath && (
-          <button
-            type="button"
-            onClick={() => {
-              if (selectedId === BG_NODE_ID) setSelectedId(null);
-              onChange({
-                ...canvasDoc,
-                backgroundAttachmentPath: null,
-                backgroundRect: null,
-                shapes: history.present,
-              });
-            }}
-            className="absolute right-1.5 bottom-1.5 rounded bg-slate-950/85 px-1.5 py-0.5 text-[9px] text-rose-300 hover:bg-slate-900"
-          >
-            Remove BG
-          </button>
+          <div className="absolute right-1.5 bottom-1.5 flex items-center gap-1">
+            <button
+              type="button"
+              onClick={toggleBackgroundLock}
+              aria-label={bgLocked ? 'Unlock BG' : 'Lock BG'}
+              title={bgLocked ? 'Unlock background screenshot so it can be moved' : 'Lock background screenshot so markups stay safe'}
+              className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] ${
+                bgLocked
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                  : 'bg-slate-950/85 text-slate-300 hover:bg-slate-900'
+              }`}
+            >
+              {bgLocked ? <Lock className="h-2.5 w-2.5" /> : <Unlock className="h-2.5 w-2.5" />}
+              {bgLocked ? 'Locked BG' : 'Lock BG'}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (selectedId === BG_NODE_ID) setSelectedId(null);
+                onChange({
+                  ...canvasDoc,
+                  backgroundAttachmentPath: null,
+                  backgroundRect: null,
+                  backgroundLocked: false,
+                  shapes: history.present,
+                });
+              }}
+              className="rounded bg-slate-950/85 px-1.5 py-0.5 text-[9px] text-rose-300 hover:bg-slate-900"
+            >
+              Remove BG
+            </button>
+          </div>
         )}
       </div>
     </div>

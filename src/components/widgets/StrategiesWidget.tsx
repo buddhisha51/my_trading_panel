@@ -210,6 +210,8 @@ export function StrategiesWidget() {
   const openViewer = useViewerStore((s) => s.openViewer);
   const editRequest = useViewerStore((s) => s.editRequest);
   const clearEditRequest = useViewerStore((s) => s.clearEditRequest);
+  const navigateRequest = useViewerStore((s) => s.navigateRequest);
+  const clearNavigateRequest = useViewerStore((s) => s.clearNavigateRequest);
 
   const strategies = useStrategiesStore((s) => s.strategies);
   const loading = useStrategiesStore((s) => s.loading);
@@ -243,20 +245,35 @@ export function StrategiesWidget() {
     );
   }, []);
 
-  const handleViewStrategy = async (strategy: StrategyItem) => {
-    const attachments =
-      attachmentsByStrategyId[strategy.id] ??
-      (await tauriBridge.listAttachments('strategies', strategy.id));
-    await openViewer({
-      kind: 'strategy',
-      strategy,
-      attachments,
-      checkedRuleIds: checkedRuleIdsByStrategy[strategy.id] ?? [],
+  const handleViewStrategy = useCallback(
+    async (strategy: StrategyItem) => {
+      const attachments =
+        attachmentsByStrategyId[strategy.id] ??
+        (await tauriBridge.listAttachments('strategies', strategy.id));
+      const siblings = strategies.map((x) => ({ id: x.id, title: x.name }));
+      const currentIndex = strategies.findIndex((x) => x.id === strategy.id);
+      await openViewer({
+        kind: 'strategy',
+        strategy,
+        attachments,
+        checkedRuleIds: checkedRuleIdsByStrategy[strategy.id] ?? [],
+        canvasTools,
+        displayTimezone,
+        timeFormat,
+        siblings,
+        currentIndex,
+      });
+    },
+    [
+      attachmentsByStrategyId,
       canvasTools,
+      checkedRuleIdsByStrategy,
       displayTimezone,
+      openViewer,
+      strategies,
       timeFormat,
-    });
-  };
+    ],
+  );
 
   useEffect(() => {
     if (editRequest?.kind !== 'strategy') return;
@@ -267,6 +284,16 @@ export function StrategiesWidget() {
     }
     clearEditRequest();
   }, [clearEditRequest, editRequest, openStrategyEdit, strategies]);
+
+  useEffect(() => {
+    if (navigateRequest?.kind !== 'strategy') return;
+    const match = strategies.find((s) => s.id === navigateRequest.id);
+    if (match) {
+      setSelectedStrategyId(match.id);
+      void handleViewStrategy(match);
+    }
+    clearNavigateRequest();
+  }, [clearNavigateRequest, handleViewStrategy, navigateRequest, strategies]);
 
   useEffect(() => {
     if (!selectedStrategyId && strategies.length > 0) {

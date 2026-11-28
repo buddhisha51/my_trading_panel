@@ -14,6 +14,7 @@ export interface ChecklistSnapshotItem {
 
 export interface TradeRecord {
   id: string;
+  accountId?: string;
   pair: string;
   direction: TradeDirection;
   entryPrice: number | null;
@@ -37,6 +38,7 @@ export interface TradeRecord {
 
 export interface UpsertTradePayload {
   id?: string;
+  accountId?: string;
   pair: string;
   direction: TradeDirection;
   entryPrice: number | null;
@@ -58,6 +60,7 @@ export interface UpsertTradePayload {
 
 export interface OngoingTradeRecord {
   id: string;
+  accountId?: string;
   pair: string;
   direction: TradeDirection;
   entryPrice: number;
@@ -73,6 +76,7 @@ export interface OngoingTradeRecord {
 
 export interface UpsertOngoingTradePayload {
   id?: string;
+  accountId?: string;
   pair: string;
   direction: TradeDirection;
   entryPrice: number;
@@ -112,6 +116,7 @@ export interface AccountProfile {
 }
 
 export interface UpdateAccountProfilePayload {
+  id?: string;
   accountName: string;
   startingBalance: number;
   currency: string;
@@ -120,8 +125,24 @@ export interface UpdateAccountProfilePayload {
   maxDdLimit: number | null;
 }
 
+export interface CreateAccountProfilePayload {
+  accountName: string;
+  startingBalance: number;
+  currency: string;
+  ddMode: DrawdownMode;
+  dailyDdLimit: number | null;
+  maxDdLimit: number | null;
+}
+
+export interface CsvImportSummary {
+  importedCount: number;
+  skippedDuplicates: number;
+  trades: TradeRecord[];
+}
+
 export interface EquitySnapshotRecord {
   id: string;
+  accountId?: string;
   date: string;
   balance: number;
   dailyPnl: number;
@@ -134,6 +155,7 @@ export interface EquitySnapshotRecord {
 }
 
 export interface UpsertEquitySnapshotPayload {
+  accountId?: string;
   date: string;
   balance: number;
   dailyPnl: number;

@@ -424,3 +424,79 @@ export function redoCanvasHistory(history: CanvasHistoryState): CanvasHistorySta
     future: history.future.slice(1),
   };
 }
+
+/**
+ * Clones any `CanvasShape` with a new ULID and shifted coordinates (`+offset px`) for `Ctrl + D`.
+ */
+export function duplicateCanvasShape(shape: CanvasShape, offset = 16): CanvasShape {
+  const id = generateUlid();
+  switch (shape.type) {
+    case 'freehand':
+      return {
+        ...shape,
+        id,
+        points: shape.points.map((v) => v + offset),
+      };
+    case 'candle':
+      return {
+        ...shape,
+        id,
+        x: shape.x + offset,
+        bodyY: shape.bodyY + offset,
+        wickTopY: shape.wickTopY + offset,
+        wickBottomY: shape.wickBottomY + offset,
+      };
+    case 'rect':
+    case 'image':
+    case 'zone_box':
+    case 'text_note':
+      return { ...shape, id, x: shape.x + offset, y: shape.y + offset };
+    case 'liquidity_line':
+    case 'straight_line':
+    case 'channel':
+    case 'mss_arrow':
+      return {
+        ...shape,
+        id,
+        x1: shape.x1 + offset,
+        y1: shape.y1 + offset,
+        x2: shape.x2 + offset,
+        y2: shape.y2 + offset,
+      };
+    case 'fib_retracement':
+    case 'ote_fib':
+      return {
+        ...shape,
+        id,
+        x: shape.x + offset,
+        startY: shape.startY + offset,
+        endY: shape.endY + offset,
+      };
+  }
+}
+
+export type IctTemplateId = 'model_2022' | 'breaker_bpr';
+
+/**
+ * Generates centered starter ICT markup skeletons so traders can stamp patterns in 1 click.
+ */
+export function buildIctPatternTemplate(
+  templateId: IctTemplateId,
+  centerX: number,
+  centerY: number,
+): CanvasShape[] {
+  if (templateId === 'breaker_bpr') {
+    const ob = buildZoneBoxFromDrag('OB', centerX - 110, centerY - 35, centerX - 10, centerY - 5);
+    const bb = buildZoneBoxFromDrag('BB', centerX - 30, centerY - 10, centerX + 90, centerY + 20);
+    const bpr = buildZoneBoxFromDrag('BPR', centerX - 20, centerY + 18, centerX + 105, centerY + 46);
+    const mss = buildMssArrowFromDrag('MSS', centerX - 15, centerY - 22, centerX + 85, centerY - 22, '#3B82F6');
+    return [ob, bb, bpr, mss];
+  }
+
+  // ICT 2022 Model: BSL Sweep -> MSS -> Displacement FVG
+  const liq = buildLiquidityLineFromDrag('BSL', centerX - 115, centerY - 50, centerX + 15, centerY - 50);
+  const sweep = buildCandleFromDrag(centerX - 45, centerY - 25, centerY - 65, 18);
+  const mss = buildMssArrowFromDrag('MSS', centerX - 20, centerY + 5, centerX + 95, centerY + 5, '#EF4444');
+  const fvg = buildZoneBoxFromDrag('FVG', centerX - 10, centerY - 28, centerX + 100, centerY - 4);
+  return [liq, sweep, mss, fvg];
+}

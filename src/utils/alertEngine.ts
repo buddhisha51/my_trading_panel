@@ -4,6 +4,7 @@ import type { TimeFormat } from '../types/settings';
 import type { KillzoneDefinition } from '../types/time';
 import { getCurrentKillzones, NY_ZONE } from './killzoneEngine';
 import { getCurrentSessions, isFxWeekendClosed } from './sessionEngine';
+import type { AlertChimeKind } from './soundCue';
 import { formatElapsedDuration, parseUtcTimestamp } from './timezone';
 
 export const TRADE_RISK_REMINDER_INTERVAL_MS = 15 * 60 * 1000;
@@ -12,6 +13,7 @@ export interface DesktopAlertMessage {
   token: string;
   title: string;
   body: string;
+  chimeKind?: AlertChimeKind;
 }
 
 export interface TimeWindowAlertSnapshot {
@@ -123,6 +125,68 @@ export function evaluateMarketTimeAlerts(params: {
       openSessions: nextOpenSessions,
     },
   };
+}
+
+/**
+ * Emits pre-open lead-time alerts (e.g. 5 minutes before Killzones, Silver Bullets,
+ * or Forex Sessions begin) so traders can prepare levels ahead of liquidity injections.
+ */
+export function evaluatePreOpenAlerts(params: {
+  now: DateTime;
+  killzones: KillzoneDefinition[];
+  displayTimezone: string;
+  timeFormat: TimeFormat;
+  leadMinutes: number;
+  includeSilverBullets?: boolean;
+}): DesktopAlertMessage[] {
+  const {
+    now,
+    killzones,
+    displayTimezone,
+    timeFormat,
+    leadMinutes,
+    includeSilverBullets = true,
+  } = params;
+  if (!Number.isFinite(leadMinutes) || leadMinutes <= 0) return [];
+  if (isFxWeekendClosed(now)) return [];
+
+  const leadMs = leadMinutes * 60_000;
+  const out: DesktopAlertMessage[] = [];
+
+  const upcomingKzs = getCurrentKillzones(now, NY_ZONE, killzones).filter(
+    (z) =>
+      !z.isActive &&
+      (z.kind === 'killzone' || (z.kind === 'silver_bullet' && includeSilverBullets)) &&
+      z.msToStart !== null &&
+      z.msToStart > 0 &&
+      z.msToStart <= leadMs,
+  );
+
+  for (const kz of upcomingKzs) {
+    const minsLeft = Math.max(1, Math.ceil((kz.msToStart ?? 0) / 60_000));
+    const startHm = kz.nyStart.toFormat('HH:mm');
+    out.push({
+      token: `pre-kz:${kz.id}:${kz.nyStart.toISODate()}:${kz.nyStart.toFormat('HHmm')}`,
+      title: `Opening in ${minsLeft}m: ${kz.label}`,
+      body: `Starts at NY ${startHm}. Prepare bias & key liquidity levels.`,
+      chimeKind: 'preopen',
+    });
+  }
+
+  const sessions = getCurrentSessions(now, displayTimezone);
+  for (const s of sessions) {
+    if (s.isOpen || s.msToOpen === null || s.msToOpen <= 0 || s.msToOpen > leadMs) continue;
+    const minsLeft = Math.max(1, Math.ceil(s.msToOpen / 60_000));
+    const openLabel = formatTimeHm(s.displayOpen, timeFormat);
+    out.push({
+      token: `pre-sess:${s.definition.id}:${s.nyOpen.toISODate()}`,
+      title: `${s.definition.name} opens in ${minsLeft}m`,
+      body: `Session opens at ${openLabel}.`,
+      chimeKind: 'preopen',
+    });
+  }
+
+  return out;
 }
 
 export interface OngoingTradeRiskAssessment {

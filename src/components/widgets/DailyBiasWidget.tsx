@@ -1,6 +1,8 @@
 import {
   ChevronLeft,
   ChevronRight,
+  LayoutGrid,
+  List,
   Minus,
   Plus,
   Trash2,
@@ -80,6 +82,7 @@ export function DailyBiasWidget() {
 
   const [addingPair, setAddingPair] = useState(false);
   const [newPairText, setNewPairText] = useState('');
+  const [viewMode, setViewMode] = useState<'pair' | 'matrix'>('pair');
 
   const entry = entriesByPair[selectedPair];
   const weeklyBias = weeklyByPair[selectedPair]?.biasDaily ?? null;
@@ -217,9 +220,54 @@ export function DailyBiasWidget() {
 
   const todayNy = getTodayNyDateString();
 
+  const cycleDirection = (cur: BiasDirection | null | undefined): BiasDirection | null => {
+    const order: Array<BiasDirection | null> = [null, 'bullish', 'bearish', 'range'];
+    const idx = order.indexOf(cur ?? null);
+    return order[(idx + 1) % order.length];
+  };
+
+  const cycleMatrixCell = (
+    pair: string,
+    tf: 'monthly' | 'weekly' | 'biasDaily' | 'bias4h' | 'bias15m',
+    current: BiasDirection | null | undefined,
+  ) => {
+    const next = cycleDirection(current);
+    if (tf === 'monthly' || tf === 'weekly') {
+      void upsertPeriodBias(tf, pair, next);
+      return;
+    }
+    const existing = entriesByPair[pair];
+    void upsertBias({
+      id: existing?.id,
+      pair,
+      date: selectedDate,
+      biasDaily: tf === 'biasDaily' ? next : existing?.biasDaily ?? null,
+      bias4h: tf === 'bias4h' ? next : existing?.bias4h ?? null,
+      bias15m: tf === 'bias15m' ? next : existing?.bias15m ?? null,
+      pdh: existing?.pdh ?? null,
+      pdl: existing?.pdl ?? null,
+      asianHigh: existing?.asianHigh ?? null,
+      asianLow: existing?.asianLow ?? null,
+      dolNotes: existing?.dolNotes ?? null,
+    });
+  };
+
+  const biasChipStyle = (d: BiasDirection | null | undefined) => {
+    if (d === 'bullish') {
+      return { text: 'B', cls: 'border-emerald-500/60 bg-emerald-500/20 text-emerald-300' };
+    }
+    if (d === 'bearish') {
+      return { text: 'S', cls: 'border-rose-500/60 bg-rose-500/20 text-rose-300' };
+    }
+    if (d === 'range') {
+      return { text: 'R', cls: 'border-amber-500/60 bg-amber-500/20 text-amber-300' };
+    }
+    return { text: '–', cls: 'border-slate-800 bg-slate-900 text-slate-500 hover:text-slate-300' };
+  };
+
   return (
     <div className="space-y-2.5 text-[11px]">
-      {/* Date Strip */}
+      {/* Date Strip & Mode Toggle */}
       <div className="flex items-center justify-between gap-1">
         <div className="flex items-center gap-1">
           <button
@@ -249,6 +297,19 @@ export function DailyBiasWidget() {
         </div>
 
         <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setViewMode((m) => (m === 'pair' ? 'matrix' : 'pair'))}
+            title={viewMode === 'pair' ? 'Switch to Multi-Pair Matrix View' : 'Switch to Pair Detail View'}
+            className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
+              viewMode === 'matrix'
+                ? 'border-blue-500/60 bg-blue-500/20 text-blue-300'
+                : 'border-slate-800 bg-slate-950 text-slate-300 hover:bg-slate-800'
+            }`}
+          >
+            {viewMode === 'matrix' ? <List className="h-3 w-3" /> : <LayoutGrid className="h-3 w-3" />}
+            {viewMode === 'matrix' ? 'Pair View' : 'Matrix'}
+          </button>
           {selectedDate !== todayNy && (
             <button
               type="button"
@@ -258,7 +319,7 @@ export function DailyBiasWidget() {
               Today
             </button>
           )}
-          {entry && (
+          {viewMode === 'pair' && entry && (
             <button
               type="button"
               onClick={() => void clearBias(selectedPair, selectedDate)}
@@ -270,6 +331,88 @@ export function DailyBiasWidget() {
           )}
         </div>
       </div>
+
+      {viewMode === 'matrix' && (
+        <div className="space-y-1.5 rounded-md border border-slate-800 bg-slate-950/75 p-2">
+          <div className="flex items-center justify-between text-[9px] text-slate-400">
+            <span>Top-Down Watchlist Matrix (click cell to cycle)</span>
+            <span className="font-mono">{periodMeta.monthLabel}</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-center font-mono text-[10px]">
+              <thead>
+                <tr className="border-b border-slate-800 text-[9px] text-slate-500">
+                  <th className="py-1 text-left font-medium">Pair</th>
+                  <th className="py-1 font-medium text-blue-300/80">MN</th>
+                  <th className="py-1 font-medium text-blue-300/80">W1</th>
+                  <th className="py-1 font-medium">D1</th>
+                  <th className="py-1 font-medium">H4</th>
+                  <th className="py-1 font-medium">H1</th>
+                  <th className="py-1 text-right font-medium">PDH/PDL</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {watchlistPairs.map((pair) => {
+                  const row = entriesByPair[pair];
+                  const mDir = monthlyByPair[pair]?.biasDaily ?? null;
+                  const wDir = weeklyByPair[pair]?.biasDaily ?? null;
+                  const cells: Array<{
+                    tf: 'monthly' | 'weekly' | 'biasDaily' | 'bias4h' | 'bias15m';
+                    val: BiasDirection | null | undefined;
+                    label: string;
+                  }> = [
+                    { tf: 'monthly', val: mDir, label: 'MN' },
+                    { tf: 'weekly', val: wDir, label: 'W1' },
+                    { tf: 'biasDaily', val: row?.biasDaily, label: 'D1' },
+                    { tf: 'bias4h', val: row?.bias4h, label: 'H4' },
+                    { tf: 'bias15m', val: row?.bias15m, label: 'H1' },
+                  ];
+                  return (
+                    <tr key={pair} className="hover:bg-slate-900/50">
+                      <td className="py-1 pr-1 text-left">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void updateSettings({ selectedBiasPair: pair });
+                            setViewMode('pair');
+                          }}
+                          className={`font-semibold hover:underline ${
+                            pair === selectedPair ? 'text-blue-300' : 'text-slate-200'
+                          }`}
+                        >
+                          {pair}
+                        </button>
+                      </td>
+                      {cells.map((c) => {
+                        const st = biasChipStyle(c.val);
+                        return (
+                          <td key={c.tf} className="px-0.5 py-1">
+                            <button
+                              type="button"
+                              aria-label={`${pair} ${c.label}`}
+                              title={`${pair} ${c.label}: ${c.val ?? 'unset'} (click to cycle)`}
+                              onClick={() => cycleMatrixCell(pair, c.tf, c.val)}
+                              className={`h-5 w-6 rounded border text-[9px] font-bold transition-colors ${st.cls}`}
+                            >
+                              {st.text}
+                            </button>
+                          </td>
+                        );
+                      })}
+                      <td className="py-1 pl-1 text-right text-[9px] text-slate-400">
+                        {row?.pdh || row?.pdl ? `${row.pdh ?? '–'}/${row.pdl ?? '–'}` : '–'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {viewMode === 'pair' && (
+        <>
 
       {/* Pair Pills */}
       <div className="flex flex-wrap items-center gap-1">
@@ -516,6 +659,8 @@ export function DailyBiasWidget() {
           className="w-full resize-none rounded border border-slate-800 bg-slate-950 px-2 py-1.5 text-[11px] text-slate-100 placeholder:text-slate-600"
         />
       </div>
+        </>
+      )}
     </div>
   );
 }

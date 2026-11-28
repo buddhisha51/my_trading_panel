@@ -4,9 +4,12 @@ import { register as registerGlobalShortcut, unregisterAll as unregisterAllGloba
 import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import type {
+  AutoBackupEntry,
+  AutoBackupRunResult,
   BackupExportResponse,
   BackupImportSummary,
   BackupRestoreMode,
+  ReleaseCheckResult,
 } from '../types/backup';
 import type { DailyBiasEntry, UpsertDailyBiasPayload } from '../types/dailyBias';
 import type { HotkeyActionId, HotkeyConfig } from '../types/hotkeys';
@@ -29,6 +32,8 @@ import type {
 import type {
   AccountProfile,
   CloseOngoingTradePayload,
+  CreateAccountProfilePayload,
+  CsvImportSummary,
   EquitySnapshotRecord,
   OngoingTradeRecord,
   TradeRecord,
@@ -61,6 +66,7 @@ const PREVIEW_NOTES_KEY = 'ict_panel_preview_notes';
 const PREVIEW_STRATEGIES_KEY = 'ict_panel_preview_strategies';
 const PREVIEW_ATTACHMENTS_KEY = 'ict_panel_preview_attachments';
 const PREVIEW_PROFILE_KEY = 'ict_panel_preview_account_profile';
+const PREVIEW_PROFILES_KEY = 'ict_panel_preview_account_profiles';
 const PREVIEW_TRADES_KEY = 'ict_panel_preview_trades';
 const PREVIEW_ONGOING_KEY = 'ict_panel_preview_ongoing_trades';
 const PREVIEW_SNAPSHOTS_KEY = 'ict_panel_preview_equity_snapshots';
@@ -115,15 +121,33 @@ const DEFAULT_PREVIEW_RSS: RssFeedSource[] = [
   },
 ];
 
+function readPreviewProfiles(): AccountProfile[] {
+  const list = readPreviewJson<AccountProfile[]>(PREVIEW_PROFILES_KEY, []);
+  if (list.length > 0) return list;
+  const legacy = readPreviewJson<AccountProfile>(PREVIEW_PROFILE_KEY, DEFAULT_PREVIEW_PROFILE);
+  const seeded = [{ ...DEFAULT_PREVIEW_PROFILE, ...legacy, id: legacy.id || 'default' }];
+  writePreviewJson(PREVIEW_PROFILES_KEY, seeded);
+  return seeded;
+}
+
+function writePreviewProfiles(profiles: AccountProfile[]): void {
+  writePreviewJson(PREVIEW_PROFILES_KEY, profiles);
+  const def = profiles.find((p) => p.id === 'default') ?? profiles[0];
+  if (def) writePreviewJson(PREVIEW_PROFILE_KEY, def);
+}
+
 function recomputePreviewProfile(
   profile: AccountProfile,
-  trades: TradeRecord[],
+  allTrades: TradeRecord[],
 ): AccountProfile {
-  const ordered = [...trades].sort((a, b) =>
-    (a.exitTime ?? a.entryTime ?? a.createdAt).localeCompare(
-      b.exitTime ?? b.entryTime ?? b.createdAt,
-    ),
-  );
+  const accId = profile.id || 'default';
+  const ordered = allTrades
+    .filter((t) => (t.accountId || 'default') === accId)
+    .sort((a, b) =>
+      (a.exitTime ?? a.entryTime ?? a.createdAt).localeCompare(
+        b.exitTime ?? b.entryTime ?? b.createdAt,
+      ),
+    );
   let bal = profile.startingBalance;
   let hwm = profile.startingBalance;
   for (const t of ordered) {
@@ -136,7 +160,11 @@ function recomputePreviewProfile(
     highWaterMark: hwm,
     updatedAt: new Date().toISOString(),
   };
-  writePreviewJson(PREVIEW_PROFILE_KEY, updated);
+  const profiles = readPreviewProfiles();
+  const idx = profiles.findIndex((p) => p.id === accId);
+  if (idx >= 0) profiles[idx] = updated;
+  else profiles.push(updated);
+  writePreviewProfiles(profiles);
   return updated;
 }
 
@@ -508,26 +536,26 @@ export const tauriBridge = {
       const record: DailyBiasEntry =
         idx >= 0
           ? {
-              ...all[idx],
-              ...payload,
-              pair: normPair,
-              updatedAt: nowIso,
-            }
+            ...all[idx],
+            ...payload,
+            pair: normPair,
+            updatedAt: nowIso,
+          }
           : {
-              id: payload.id || generateUlid(),
-              pair: normPair,
-              date: payload.date,
-              biasDaily: payload.biasDaily,
-              bias4h: payload.bias4h,
-              bias15m: payload.bias15m,
-              pdh: payload.pdh,
-              pdl: payload.pdl,
-              asianHigh: payload.asianHigh,
-              asianLow: payload.asianLow,
-              dolNotes: payload.dolNotes,
-              createdAt: nowIso,
-              updatedAt: nowIso,
-            };
+            id: payload.id || generateUlid(),
+            pair: normPair,
+            date: payload.date,
+            biasDaily: payload.biasDaily,
+            bias4h: payload.bias4h,
+            bias15m: payload.bias15m,
+            pdh: payload.pdh,
+            pdl: payload.pdl,
+            asianHigh: payload.asianHigh,
+            asianLow: payload.asianLow,
+            dolNotes: payload.dolNotes,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+          };
       if (idx >= 0) {
         all[idx] = record;
       } else {
@@ -665,6 +693,8 @@ export const tauriBridge = {
         pair: payload.pair ? payload.pair.trim().toUpperCase() : null,
         session: payload.session ? payload.session.trim() : null,
         isPinned: payload.isPinned,
+        tradeId: payload.tradeId ?? null,
+        ongoingTradeId: payload.ongoingTradeId ?? null,
         createdAt: idx >= 0 ? notes[idx].createdAt : nowIso,
         updatedAt: nowIso,
       };
@@ -831,21 +861,55 @@ export const tauriBridge = {
     await invoke('delete_attachment', { ownerType, id });
   },
 
-  // --- Trade Journal, Ongoing Trades & Account Profile ---
-  async getAccountProfile(): Promise<AccountProfile> {
+  // --- Trade Journal, Ongoing Trades & Account Profiles ---
+  async listAccountProfiles(): Promise<AccountProfile[]> {
     if (!isTauriRuntime()) {
-      return readPreviewJson<AccountProfile>(PREVIEW_PROFILE_KEY, DEFAULT_PREVIEW_PROFILE);
+      return readPreviewProfiles();
     }
-    return invoke<AccountProfile>('get_account_profile');
+    return invoke<AccountProfile[]>('list_account_profiles');
+  },
+
+  async getAccountProfile(accountId = 'default'): Promise<AccountProfile> {
+    if (!isTauriRuntime()) {
+      const profiles = readPreviewProfiles();
+      return profiles.find((p) => p.id === accountId) ?? profiles[0] ?? DEFAULT_PREVIEW_PROFILE;
+    }
+    return invoke<AccountProfile>('get_account_profile', { accountId });
+  },
+
+  async createAccountProfile(payload: CreateAccountProfilePayload): Promise<AccountProfile> {
+    if (!isTauriRuntime()) {
+      const profiles = readPreviewProfiles();
+      const bal = Math.max(0, payload.startingBalance);
+      const created: AccountProfile = {
+        id: generateUlid(),
+        accountName: payload.accountName.trim(),
+        startingBalance: bal,
+        currentBalance: bal,
+        highWaterMark: bal,
+        currency: payload.currency.trim().toUpperCase() || 'USD',
+        ddMode: payload.ddMode,
+        dailyDdLimit: payload.dailyDdLimit,
+        maxDdLimit: payload.maxDdLimit,
+        updatedAt: new Date().toISOString(),
+      };
+      profiles.push(created);
+      writePreviewProfiles(profiles);
+      return created;
+    }
+    return invoke<AccountProfile>('create_account_profile', { input: payload });
   },
 
   async updateAccountProfile(payload: UpdateAccountProfilePayload): Promise<AccountProfile> {
     if (!isTauriRuntime()) {
-      const cur = readPreviewJson<AccountProfile>(PREVIEW_PROFILE_KEY, DEFAULT_PREVIEW_PROFILE);
+      const targetId = payload.id || 'default';
+      const profiles = readPreviewProfiles();
+      const cur = profiles.find((p) => p.id === targetId) ?? DEFAULT_PREVIEW_PROFILE;
       const trades = readPreviewJson<TradeRecord[]>(PREVIEW_TRADES_KEY, []);
       return recomputePreviewProfile(
         {
           ...cur,
+          id: targetId,
           accountName: payload.accountName.trim(),
           startingBalance: Math.max(0, payload.startingBalance),
           currency: payload.currency.trim().toUpperCase(),
@@ -859,26 +923,52 @@ export const tauriBridge = {
     return invoke<AccountProfile>('update_account_profile', { input: payload });
   },
 
-  async listTrades(): Promise<TradeRecord[]> {
+  async deleteAccountProfile(accountId: string, forceCascade = false): Promise<void> {
+    if (!isTauriRuntime()) {
+      if (accountId === 'default') throw new Error('The primary default account cannot be deleted.');
+      const trades = readPreviewJson<TradeRecord[]>(PREVIEW_TRADES_KEY, []);
+      const ongoing = readPreviewJson<OngoingTradeRecord[]>(PREVIEW_ONGOING_KEY, []);
+      const snaps = readPreviewJson<EquitySnapshotRecord[]>(PREVIEW_SNAPSHOTS_KEY, []);
+      const linked =
+        trades.filter((t) => (t.accountId || 'default') === accountId).length +
+        ongoing.filter((o) => (o.accountId || 'default') === accountId).length +
+        snaps.filter((s) => (s.accountId || 'default') === accountId).length;
+      if (linked > 0 && !forceCascade) {
+        throw new Error('Account has linked trades or snapshots. Confirm deletion to remove all account data.');
+      }
+      writePreviewJson(PREVIEW_TRADES_KEY, trades.filter((t) => (t.accountId || 'default') !== accountId));
+      writePreviewJson(PREVIEW_ONGOING_KEY, ongoing.filter((o) => (o.accountId || 'default') !== accountId));
+      writePreviewJson(PREVIEW_SNAPSHOTS_KEY, snaps.filter((s) => (s.accountId || 'default') !== accountId));
+      writePreviewProfiles(readPreviewProfiles().filter((p) => p.id !== accountId));
+      return;
+    }
+    await invoke('delete_account_profile', { accountId, forceCascade });
+  },
+
+  async listTrades(accountId = 'default'): Promise<TradeRecord[]> {
     if (!isTauriRuntime()) {
       const trades = readPreviewJson<TradeRecord[]>(PREVIEW_TRADES_KEY, []);
-      return trades.sort((a, b) =>
-        (b.exitTime ?? b.entryTime ?? b.createdAt).localeCompare(
-          a.exitTime ?? a.entryTime ?? a.createdAt,
-        ),
-      );
+      return trades
+        .filter((t) => (t.accountId || 'default') === accountId)
+        .sort((a, b) =>
+          (b.exitTime ?? b.entryTime ?? b.createdAt).localeCompare(
+            a.exitTime ?? a.entryTime ?? a.createdAt,
+          ),
+        );
     }
-    return invoke<TradeRecord[]>('list_trades');
+    return invoke<TradeRecord[]>('list_trades', { accountId });
   },
 
   async upsertTrade(payload: UpsertTradePayload): Promise<TradeRecord> {
     if (!isTauriRuntime()) {
       const nowIso = new Date().toISOString();
       const id = payload.id || generateUlid();
+      const accId = payload.accountId || 'default';
       const trades = readPreviewJson<TradeRecord[]>(PREVIEW_TRADES_KEY, []);
       const idx = trades.findIndex((t) => t.id === id);
       const record: TradeRecord = {
         id,
+        accountId: accId,
         pair: payload.pair.trim().toUpperCase(),
         direction: payload.direction,
         entryPrice: payload.entryPrice,
@@ -902,47 +992,80 @@ export const tauriBridge = {
       if (idx >= 0) trades[idx] = record;
       else trades.unshift(record);
       writePreviewJson(PREVIEW_TRADES_KEY, trades);
-      const curProfile = readPreviewJson<AccountProfile>(
-        PREVIEW_PROFILE_KEY,
-        DEFAULT_PREVIEW_PROFILE,
-      );
-      recomputePreviewProfile(curProfile, trades);
+      const profiles = readPreviewProfiles();
+      const targetProfile = profiles.find((p) => p.id === accId) ?? DEFAULT_PREVIEW_PROFILE;
+      recomputePreviewProfile(targetProfile, trades);
       return record;
     }
     return invoke<TradeRecord>('upsert_trade', { input: payload });
   },
 
+  async importTradesCsvRows(
+    accountId: string,
+    rows: UpsertTradePayload[],
+  ): Promise<CsvImportSummary> {
+    if (!isTauriRuntime()) {
+      const accId = accountId || 'default';
+      const existing = readPreviewJson<TradeRecord[]>(PREVIEW_TRADES_KEY, []);
+      const inserted: TradeRecord[] = [];
+      let skipped = 0;
+      for (const row of rows) {
+        const dup = existing.some(
+          (t) =>
+            (t.accountId || 'default') === accId &&
+            t.pair === row.pair.trim().toUpperCase() &&
+            t.direction === row.direction &&
+            (t.entryTime ?? '') === (row.entryTime ?? '') &&
+            (t.exitTime ?? '') === (row.exitTime ?? '') &&
+            (t.pnlDollars ?? 0) === (normalizeTradePnl(row.outcome, row.pnlDollars) ?? 0),
+        );
+        if (dup) {
+          skipped += 1;
+          continue;
+        }
+        const saved = await this.upsertTrade({ ...row, accountId: accId });
+        existing.unshift(saved);
+        inserted.push(saved);
+      }
+      return { importedCount: inserted.length, skippedDuplicates: skipped, trades: inserted };
+    }
+    return invoke<CsvImportSummary>('import_trades_csv_rows', { accountId, rows });
+  },
+
   async deleteTrade(id: string): Promise<void> {
     if (!isTauriRuntime()) {
       const trades = readPreviewJson<TradeRecord[]>(PREVIEW_TRADES_KEY, []);
+      const removed = trades.find((t) => t.id === id);
       const filtered = trades.filter((t) => t.id !== id);
       writePreviewJson(PREVIEW_TRADES_KEY, filtered);
-      const curProfile = readPreviewJson<AccountProfile>(
-        PREVIEW_PROFILE_KEY,
-        DEFAULT_PREVIEW_PROFILE,
-      );
+      const accId = removed?.accountId || 'default';
+      const curProfile = readPreviewProfiles().find((p) => p.id === accId) ?? DEFAULT_PREVIEW_PROFILE;
       recomputePreviewProfile(curProfile, filtered);
       return;
     }
     await invoke('delete_trade', { id });
   },
 
-  async listOngoingTrades(): Promise<OngoingTradeRecord[]> {
+  async listOngoingTrades(accountId = 'default'): Promise<OngoingTradeRecord[]> {
     if (!isTauriRuntime()) {
       const rows = readPreviewJson<OngoingTradeRecord[]>(PREVIEW_ONGOING_KEY, []);
-      return rows.sort((a, b) => b.openedAt.localeCompare(a.openedAt));
+      return rows
+        .filter((r) => (r.accountId || 'default') === accountId)
+        .sort((a, b) => b.openedAt.localeCompare(a.openedAt));
     }
-    return invoke<OngoingTradeRecord[]>('list_ongoing_trades');
+    return invoke<OngoingTradeRecord[]>('list_ongoing_trades', { accountId });
   },
 
   async upsertOngoingTrade(payload: UpsertOngoingTradePayload): Promise<OngoingTradeRecord> {
     if (!isTauriRuntime()) {
       const nowIso = new Date().toISOString();
       const id = payload.id || generateUlid();
+      const accId = payload.accountId || 'default';
       const rows = readPreviewJson<OngoingTradeRecord[]>(PREVIEW_ONGOING_KEY, []);
       const idx = rows.findIndex((r) => r.id === id);
       const record: OngoingTradeRecord = {
         id,
+        accountId: accId,
         pair: payload.pair.trim().toUpperCase(),
         direction: payload.direction,
         entryPrice: payload.entryPrice,
@@ -984,6 +1107,7 @@ export const tauriBridge = {
       }
       const nowIso = new Date().toISOString();
       const trade = await this.upsertTrade({
+        accountId: found.accountId || 'default',
         pair: found.pair,
         direction: found.direction,
         entryPrice: found.entryPrice,
@@ -1002,29 +1126,44 @@ export const tauriBridge = {
         exitTime: payload.exitTime ?? nowIso,
         session: payload.session,
       });
+      // Migrate linked notes cleanly in preview mode too
+      const notes = readPreviewJson<NoteItem[]>(PREVIEW_NOTES_KEY, []);
+      let notesChanged = false;
+      for (const n of notes) {
+        if (n.ongoingTradeId === found.id) {
+          n.tradeId = trade.id;
+          n.ongoingTradeId = null;
+          notesChanged = true;
+        }
+      }
+      if (notesChanged) writePreviewJson(PREVIEW_NOTES_KEY, notes);
       await this.deleteOngoingTrade(found.id);
       return trade;
     }
     return invoke<TradeRecord>('close_ongoing_to_journal', { input: payload });
   },
 
-  async listEquitySnapshots(): Promise<EquitySnapshotRecord[]> {
+  async listEquitySnapshots(accountId = 'default'): Promise<EquitySnapshotRecord[]> {
     if (!isTauriRuntime()) {
-      return readPreviewJson<EquitySnapshotRecord[]>(PREVIEW_SNAPSHOTS_KEY, []).sort((a, b) =>
-        a.date.localeCompare(b.date),
-      );
+      return readPreviewJson<EquitySnapshotRecord[]>(PREVIEW_SNAPSHOTS_KEY, [])
+        .filter((s) => (s.accountId || 'default') === accountId)
+        .sort((a, b) => a.date.localeCompare(b.date));
     }
-    return invoke<EquitySnapshotRecord[]>('list_equity_snapshots');
+    return invoke<EquitySnapshotRecord[]>('list_equity_snapshots', { accountId });
   },
 
   async upsertEquitySnapshot(
     payload: UpsertEquitySnapshotPayload,
   ): Promise<EquitySnapshotRecord> {
     if (!isTauriRuntime()) {
+      const accId = payload.accountId || 'default';
       const rows = readPreviewJson<EquitySnapshotRecord[]>(PREVIEW_SNAPSHOTS_KEY, []);
-      const idx = rows.findIndex((r) => r.date === payload.date);
+      const idx = rows.findIndex(
+        (r) => (r.accountId || 'default') === accId && r.date === payload.date,
+      );
       const record: EquitySnapshotRecord = {
         id: idx >= 0 ? rows[idx].id : generateUlid(),
+        accountId: accId,
         date: payload.date,
         balance: payload.balance,
         dailyPnl: payload.dailyPnl,
@@ -1180,7 +1319,7 @@ export const tauriBridge = {
   },
 
   async onMarketDataUpdated(cb: () => void): Promise<UnlistenFn> {
-    if (!isTauriRuntime()) return () => {};
+    if (!isTauriRuntime()) return () => { };
     return listen('data-updated', cb);
   },
 
@@ -1228,6 +1367,7 @@ export const tauriBridge = {
         PREVIEW_STRATEGIES_KEY,
         PREVIEW_ATTACHMENTS_KEY,
         PREVIEW_PROFILE_KEY,
+        PREVIEW_PROFILES_KEY,
         PREVIEW_TRADES_KEY,
         PREVIEW_ONGOING_KEY,
         PREVIEW_SNAPSHOTS_KEY,
@@ -1291,6 +1431,41 @@ export const tauriBridge = {
   async openBackupsFolder(): Promise<void> {
     if (!isTauriRuntime()) return;
     await invoke('open_backups_folder');
+  },
+
+  async triggerAutoBackup(force = false, retention = 7): Promise<AutoBackupRunResult> {
+    if (!isTauriRuntime()) {
+      return {
+        created: false,
+        skippedUnchanged: true,
+        entry: null,
+        prunedCount: 0,
+      };
+    }
+    return invoke<AutoBackupRunResult>('trigger_auto_backup', { force, retention });
+  },
+
+  async listAutoBackups(): Promise<AutoBackupEntry[]> {
+    if (!isTauriRuntime()) return [];
+    return invoke<AutoBackupEntry[]>('list_auto_backups');
+  },
+
+  async checkGithubRelease(force = false): Promise<ReleaseCheckResult> {
+    if (!isTauriRuntime()) {
+      return {
+        currentVersion: __APP_VERSION__,
+        latestVersion: __APP_VERSION__,
+        updateAvailable: false,
+        releaseUrl: 'https://github.com/buddhisha51/my_trading_panel/releases',
+        installerUrl: null,
+        checksumsUrl: null,
+        releaseNotes: '',
+        publishedAt: null,
+        checkedAt: new Date().toISOString(),
+        fromCache: true,
+      };
+    }
+    return invoke<ReleaseCheckResult>('check_github_release', { force });
   },
 
   // --- Global Hotkeys & Desktop Notifications ---
@@ -1359,17 +1534,17 @@ export const tauriBridge = {
   },
 
   async onDisplayMetricsChanged(cb: () => void): Promise<UnlistenFn> {
-    if (!isTauriRuntime()) return () => {};
+    if (!isTauriRuntime()) return () => { };
     return listen('display-metrics-changed', cb);
   },
 
   async onDockDragReleased(cb: () => void): Promise<UnlistenFn> {
-    if (!isTauriRuntime()) return () => {};
+    if (!isTauriRuntime()) return () => { };
     return listen('dock-drag-released', cb);
   },
 
   async onTrayAction(cb: (action: 'togglePanel' | 'togglePin') => void): Promise<UnlistenFn> {
-    if (!isTauriRuntime()) return () => {};
+    if (!isTauriRuntime()) return () => { };
     const unlistenToggle = await listen('tray-toggle-panel', () => cb('togglePanel'));
     const unlistenPin = await listen('tray-toggle-pin', () => cb('togglePin'));
     return () => {
@@ -1421,8 +1596,13 @@ export const tauriBridge = {
     await invoke('request_viewer_edit', { kind, id });
   },
 
+  async requestViewerNavigate(kind: 'note' | 'strategy', id: string): Promise<void> {
+    if (!isTauriRuntime()) return;
+    await invoke('request_viewer_navigate', { kind, id });
+  },
+
   async onViewerPayloadUpdated(cb: (payload: FloatingViewerPayload) => void): Promise<UnlistenFn> {
-    if (!isTauriRuntime()) return () => {};
+    if (!isTauriRuntime()) return () => { };
     return listen<string>('viewer-payload-updated', (ev) => {
       try {
         cb(JSON.parse(ev.payload) as FloatingViewerPayload);
@@ -1435,8 +1615,19 @@ export const tauriBridge = {
   async onViewerRequestEdit(
     cb: (req: { kind: 'note' | 'strategy'; id: string }) => void,
   ): Promise<UnlistenFn> {
-    if (!isTauriRuntime()) return () => {};
+    if (!isTauriRuntime()) return () => { };
     return listen<{ kind: 'note' | 'strategy'; id: string }>('viewer-request-edit', (ev) => {
+      if (ev.payload?.kind && ev.payload?.id) {
+        cb(ev.payload);
+      }
+    });
+  },
+
+  async onViewerRequestNavigate(
+    cb: (req: { kind: 'note' | 'strategy'; id: string }) => void,
+  ): Promise<UnlistenFn> {
+    if (!isTauriRuntime()) return () => { };
+    return listen<{ kind: 'note' | 'strategy'; id: string }>('viewer-request-navigate', (ev) => {
       if (ev.payload?.kind && ev.payload?.id) {
         cb(ev.payload);
       }

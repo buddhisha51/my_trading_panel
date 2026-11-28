@@ -164,19 +164,23 @@ export interface AppSettings {
   watchlistPairs: string[];
   selectedBiasPair: string;
 
-  // Multi-Asset Risk Calculator Defaults
+  // Multi-Asset Risk Calculator & Guardrail Defaults
   instrumentSpecs: InstrumentSpec[];
   selectedInstrument: string;
   riskEquity: number;
+  riskAutoSyncBalance: boolean;
   riskMode: RiskInputMode;
   riskPercent: number;
   riskDollars: number;
   conversionRates: ConversionRates;
 
   // Risk & Prop Firm Defaults
+  activeAccountId: string;
   dailyDdLimit: number;
   maxDdLimit: number;
   ddMode: DrawdownMode;
+  maxTradesPerDay: number | null;
+  maxConsecutiveLosses: number | null;
 
   // Calendar & News Preferences
   calendarFilterOptions: string[];
@@ -185,9 +189,14 @@ export interface AppSettings {
   volatilityThresholdMin: number;
   newsCategories: NewsCategory[];
 
-  // Hotkeys & Alerts
+  // Hotkeys, Alerts & Maintenance
   hotkeys: HotkeyConfig;
   notificationsEnabled: boolean;
+  preOpenAlertMinutes: number;
+  soundAlertsEnabled: boolean;
+  autoBackupOnQuit: boolean;
+  autoBackupRetention: number;
+  autoCheckUpdates: boolean;
 
   // Canvas Tools (OTE & Fib ranges and colors)
   canvasTools: CanvasToolSettings;
@@ -224,14 +233,18 @@ export const DEFAULT_SETTINGS: AppSettings = {
   instrumentSpecs: cloneDefaultInstrumentSpecs(),
   selectedInstrument: 'EURUSD',
   riskEquity: 10000,
+  riskAutoSyncBalance: true,
   riskMode: 'percent',
   riskPercent: 1.0,
   riskDollars: 100,
   conversionRates: { ...DEFAULT_CONVERSION_RATES },
 
+  activeAccountId: 'default',
   dailyDdLimit: 5.0,
   maxDdLimit: 10.0,
   ddMode: 'static',
+  maxTradesPerDay: null,
+  maxConsecutiveLosses: null,
 
   calendarFilterOptions: ['USD', 'EUR', 'GBP', 'JPY', 'CAD', 'AUD', 'NZD', 'CHF'],
   calendarCurrencies: ['USD', 'EUR', 'GBP', 'JPY'],
@@ -241,6 +254,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
   hotkeys: { ...DEFAULT_HOTKEYS },
   notificationsEnabled: true,
+  preOpenAlertMinutes: 5,
+  soundAlertsEnabled: true,
+  autoBackupOnQuit: true,
+  autoBackupRetention: 7,
+  autoCheckUpdates: true,
 
   canvasTools: cloneDefaultCanvasToolSettings(),
 };

@@ -219,6 +219,7 @@ export interface CanvasDocument {
   /** Relative attachment path under `%APPDATA%/attachments/` — never raw base64 */
   backgroundAttachmentPath: string | null;
   backgroundRect?: CanvasBackgroundRect | null;
+  backgroundLocked?: boolean;
   shapes: CanvasShape[];
 }
 
@@ -237,6 +238,7 @@ export function createEmptyCanvasDocument(
     height,
     backgroundAttachmentPath: null,
     backgroundRect: null,
+    backgroundLocked: false,
     shapes: [],
   };
 }
@@ -272,6 +274,7 @@ export function parseCanvasDocument(raw: string | null | undefined): CanvasDocum
           ? parsed.backgroundAttachmentPath
           : null,
       backgroundRect,
+      backgroundLocked: Boolean(parsed.backgroundLocked),
       shapes: Array.isArray(parsed.shapes)
         ? parsed.shapes.filter(
           (s) =>

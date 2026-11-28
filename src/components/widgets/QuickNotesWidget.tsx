@@ -46,6 +46,8 @@ interface NoteDraft {
   pair: string;
   session: string;
   isPinned: boolean;
+  tradeId: string | null;
+  ongoingTradeId: string | null;
 }
 
 function toNoteDraft(note: NoteItem): NoteDraft {
@@ -59,6 +61,8 @@ function toNoteDraft(note: NoteItem): NoteDraft {
     pair: note.pair ?? '',
     session: note.session ?? '',
     isPinned: note.isPinned,
+    tradeId: note.tradeId ?? null,
+    ongoingTradeId: note.ongoingTradeId ?? null,
   };
 }
 
@@ -73,6 +77,8 @@ function createNewNoteDraft(): NoteDraft {
     pair: '',
     session: '',
     isPinned: false,
+    tradeId: null,
+    ongoingTradeId: null,
   };
 }
 
@@ -96,6 +102,10 @@ export function QuickNotesWidget() {
   const openViewer = useViewerStore((s) => s.openViewer);
   const editRequest = useViewerStore((s) => s.editRequest);
   const clearEditRequest = useViewerStore((s) => s.clearEditRequest);
+  const navigateRequest = useViewerStore((s) => s.navigateRequest);
+  const clearNavigateRequest = useViewerStore((s) => s.clearNavigateRequest);
+  const noteLinkRequest = useViewerStore((s) => s.noteLinkRequest);
+  const clearNoteLinkRequest = useViewerStore((s) => s.clearNoteLinkRequest);
 
   const notes = useNotesStore((s) => s.notes);
   const loading = useNotesStore((s) => s.loading);
@@ -144,6 +154,8 @@ export function QuickNotesWidget() {
       pair: d.pair.trim() || null,
       session: d.session || null,
       isPinned: d.isPinned,
+      tradeId: d.tradeId,
+      ongoingTradeId: d.ongoingTradeId,
     };
   };
 
@@ -159,18 +171,25 @@ export function QuickNotesWidget() {
     [loadNoteAttachments],
   );
 
-  const handleViewNote = async (note: NoteItem) => {
-    const attachments =
-      attachmentsByNoteId[note.id] ?? (await tauriBridge.listAttachments('notes', note.id));
-    await openViewer({
-      kind: 'note',
-      note,
-      attachments,
-      canvasTools,
-      displayTimezone,
-      timeFormat,
-    });
-  };
+  const handleViewNote = useCallback(
+    async (note: NoteItem) => {
+      const attachments =
+        attachmentsByNoteId[note.id] ?? (await tauriBridge.listAttachments('notes', note.id));
+      const siblings = notes.map((x) => ({ id: x.id, title: x.title || 'Untitled Note' }));
+      const currentIndex = notes.findIndex((x) => x.id === note.id);
+      await openViewer({
+        kind: 'note',
+        note,
+        attachments,
+        canvasTools,
+        displayTimezone,
+        timeFormat,
+        siblings,
+        currentIndex,
+      });
+    },
+    [attachmentsByNoteId, canvasTools, displayTimezone, notes, openViewer, timeFormat],
+  );
 
   useEffect(() => {
     if (editRequest?.kind !== 'note') return;
@@ -180,6 +199,28 @@ export function QuickNotesWidget() {
     }
     clearEditRequest();
   }, [clearEditRequest, editRequest, handleOpenNote, notes]);
+
+  useEffect(() => {
+    if (navigateRequest?.kind !== 'note') return;
+    const match = notes.find((n) => n.id === navigateRequest.id);
+    if (match) {
+      void handleViewNote(match);
+    }
+    clearNavigateRequest();
+  }, [clearNavigateRequest, handleViewNote, navigateRequest, notes]);
+
+  useEffect(() => {
+    if (!noteLinkRequest) return;
+    const fresh = createNewNoteDraft();
+    fresh.title = noteLinkRequest.suggestedTitle ?? '';
+    fresh.pair = noteLinkRequest.pair ?? '';
+    fresh.session = noteLinkRequest.session ?? '';
+    fresh.tradeId = noteLinkRequest.tradeId ?? null;
+    fresh.ongoingTradeId = noteLinkRequest.ongoingTradeId ?? null;
+    setDraft(fresh);
+    setShowCanvas(false);
+    clearNoteLinkRequest();
+  }, [clearNoteLinkRequest, noteLinkRequest]);
 
   const handleCreateNote = () => {
     setDraft(createNewNoteDraft());
@@ -279,6 +320,20 @@ export function QuickNotesWidget() {
         </div>
 
         {/* Title & Metadata */}
+        {(draft.tradeId || draft.ongoingTradeId) && (
+          <div className="flex items-center justify-between rounded border border-blue-500/35 bg-blue-500/10 px-2 py-1 text-[10px] text-blue-300">
+            <span>
+              Linked to {draft.ongoingTradeId ? 'Ongoing Position' : 'Journal Trade'}
+            </span>
+            <button
+              type="button"
+              onClick={() => setDraft({ ...draft, tradeId: null, ongoingTradeId: null })}
+              className="text-[9px] text-slate-400 hover:text-white"
+            >
+              Unlink
+            </button>
+          </div>
+        )}
         <input
           type="text"
           value={draft.title}
@@ -630,6 +685,11 @@ export function QuickNotesWidget() {
                   {n.session && (
                     <span className="rounded bg-slate-800 px-1.5 py-0.5 text-slate-300">
                       {n.session}
+                    </span>
+                  )}
+                  {(n.tradeId || n.ongoingTradeId) && (
+                    <span className="rounded bg-violet-500/15 px-1.5 py-0.5 text-violet-300">
+                      Trade Linked
                     </span>
                   )}
                   {hasCanvas && (

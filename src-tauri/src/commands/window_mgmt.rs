@@ -1,8 +1,11 @@
+use crate::commands::backup::maybe_run_auto_backup_on_quit;
+use crate::commands::db_ops::DbState;
 use crate::docking::edge_detector::{compute_dock_geometry, find_nearest_dock_target};
 use crate::docking::multi_monitor::{enumerate_monitors, resolve_monitor};
 use crate::docking::win32_styles;
 use crate::docking::{DockEdge, DockGeometry, DockSnapResult, MonitorInfo};
-use serde::Serialize;
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -336,10 +339,12 @@ pub fn launch_screen_snip(app: AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-/// Exits the entire desktop application process cleanly (used by titlebar Quit button).
+/// Exits the entire desktop application process cleanly after optional dirty-checked auto-backup.
 #[tauri::command]
-pub fn quit_app(app: AppHandle) {
+pub async fn quit_app(app: AppHandle, state: State<'_, DbState>) -> Result<(), String> {
+    maybe_run_auto_backup_on_quit(&state.pool, &state.app_data_dir).await;
     app.exit(0);
+    Ok(())
 }
 
 /// Opens or updates a separate always-on-top floating detail viewer window (`detail-viewer`)
@@ -410,6 +415,7 @@ pub async fn open_floating_viewer(
         WebviewUrl::App("index.html".into()),
     )
     .initialization_script("window.__ICT_VIEWER_WINDOW__ = true;")
+    .additional_browser_args("--autoplay-policy=no-user-gesture-required")
     .title("Detail View — ICT Trading Panel")
     .inner_size(logical_w, logical_h)
     .position(logical_x, logical_y)
@@ -499,5 +505,179 @@ pub fn request_viewer_edit(app: AppHandle, state: State<'_, ViewerState>, kind: 
     state.reset_window_flags();
     if let Some(w) = app.get_webview_window("detail-viewer") {
         let _ = w.close();
+    }
+}
+
+#[tauri::command]
+pub fn request_viewer_navigate(app: AppHandle, kind: String, id: String) {
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.emit(
+            "viewer-request-navigate",
+            serde_json::json!({ "kind": kind, "id": id }),
+        );
+    }
+}
+
+const GITHUB_REPO_SLUG: &str = "buddhisha51/my_trading_panel";
+const RELEASE_CACHE_TTL_SECS: i64 = 12 * 60 * 60;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleaseCheckResult {
+    pub current_version: String,
+    pub latest_version: String,
+    pub update_available: bool,
+    pub release_url: String,
+    pub installer_url: Option<String>,
+    pub checksums_url: Option<String>,
+    pub release_notes: String,
+    pub published_at: Option<String>,
+    pub checked_at: String,
+    pub from_cache: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubAssetDto {
+    name: String,
+    browser_download_url: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubReleaseDto {
+    tag_name: String,
+    html_url: String,
+    body: Option<String>,
+    published_at: Option<String>,
+    #[serde(default)]
+    draft: bool,
+    #[serde(default)]
+    prerelease: bool,
+    #[serde(default)]
+    assets: Vec<GithubAssetDto>,
+}
+
+pub fn parse_semver_tuple(raw: &str) -> Option<(u64, u64, u64)> {
+    let trimmed = raw.trim().trim_start_matches(['v', 'V']);
+    let core = trimmed.split('-').next()?.split('+').next()?;
+    let mut parts = core.split('.');
+    let major = parts.next()?.parse::<u64>().ok()?;
+    let minor = parts.next().unwrap_or("0").parse::<u64>().ok()?;
+    let patch = parts.next().unwrap_or("0").parse::<u64>().ok()?;
+    Some((major, minor, patch))
+}
+
+pub fn is_semver_newer(latest: &str, current: &str) -> bool {
+    match (parse_semver_tuple(latest), parse_semver_tuple(current)) {
+        (Some(l), Some(c)) => l > c,
+        _ => false,
+    }
+}
+
+#[tauri::command]
+pub async fn check_github_release(
+    state: State<'_, DbState>,
+    force: Option<bool>,
+) -> Result<ReleaseCheckResult, String> {
+    let current_version = env!("CARGO_PKG_VERSION").to_string();
+    let cache_path = state.app_data_dir.join("release_cache.json");
+
+    if !force.unwrap_or(false) {
+        if let Ok(raw) = std::fs::read_to_string(&cache_path) {
+            if let Ok(mut cached) = serde_json::from_str::<ReleaseCheckResult>(&raw) {
+                if let Ok(ts) = chrono::DateTime::parse_from_rfc3339(&cached.checked_at) {
+                    let age_secs = (Utc::now() - ts.with_timezone(&Utc)).num_seconds();
+                    if age_secs >= 0 && age_secs < RELEASE_CACHE_TTL_SECS {
+                        cached.current_version = current_version.clone();
+                        cached.update_available =
+                            is_semver_newer(&cached.latest_version, &current_version);
+                        cached.from_cache = true;
+                        return Ok(cached);
+                    }
+                }
+            }
+        }
+    }
+
+    let url = format!("https://api.github.com/repos/{GITHUB_REPO_SLUG}/releases/latest");
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let resp = client
+        .get(&url)
+        .header("User-Agent", format!("ict-smc-trading-panel/{current_version}"))
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(|e| format!("Failed checking GitHub Releases: {e}"))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("GitHub API returned HTTP {}", resp.status()));
+    }
+
+    let dto: GithubReleaseDto = resp
+        .json()
+        .await
+        .map_err(|e| format!("Invalid GitHub release payload: {e}"))?;
+
+    if dto.draft || dto.prerelease {
+        return Ok(ReleaseCheckResult {
+            current_version: current_version.clone(),
+            latest_version: current_version,
+            update_available: false,
+            release_url: format!("https://github.com/{GITHUB_REPO_SLUG}/releases"),
+            installer_url: None,
+            checksums_url: None,
+            release_notes: String::new(),
+            published_at: dto.published_at,
+            checked_at: Utc::now().to_rfc3339(),
+            from_cache: false,
+        });
+    }
+
+    let latest_version = dto.tag_name.trim().trim_start_matches(['v', 'V']).to_string();
+    let installer_url = dto
+        .assets
+        .iter()
+        .find(|a| a.name.to_lowercase().ends_with("-setup.exe"))
+        .map(|a| a.browser_download_url.clone());
+    let checksums_url = dto
+        .assets
+        .iter()
+        .find(|a| a.name.to_uppercase().contains("SHA256SUMS"))
+        .map(|a| a.browser_download_url.clone());
+
+    let result = ReleaseCheckResult {
+        current_version: current_version.clone(),
+        latest_version: latest_version.clone(),
+        update_available: is_semver_newer(&latest_version, &current_version),
+        release_url: dto.html_url,
+        installer_url,
+        checksums_url,
+        release_notes: dto.body.unwrap_or_default(),
+        published_at: dto.published_at,
+        checked_at: Utc::now().to_rfc3339(),
+        from_cache: false,
+    };
+
+    if let Ok(json_bytes) = serde_json::to_vec_pretty(&result) {
+        let _ = std::fs::write(&cache_path, json_bytes);
+    }
+
+    Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn semver_comparison_handles_multi_digit_and_equal_versions() {
+        assert!(is_semver_newer("0.1.3", "0.1.2"));
+        assert!(is_semver_newer("v0.1.10", "0.1.2"));
+        assert!(is_semver_newer("0.2.0", "0.1.99"));
+        assert!(!is_semver_newer("v0.1.2", "0.1.2"));
+        assert!(!is_semver_newer("0.1.1", "0.1.2"));
     }
 }

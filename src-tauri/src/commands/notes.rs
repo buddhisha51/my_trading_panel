@@ -29,6 +29,8 @@ pub struct NoteRecord {
     pub pair: Option<String>,
     pub session: Option<String>,
     pub is_pinned: bool,
+    pub trade_id: Option<String>,
+    pub ongoing_trade_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -45,6 +47,10 @@ pub struct UpsertNoteInput {
     pub pair: Option<String>,
     pub session: Option<String>,
     pub is_pinned: bool,
+    #[serde(default)]
+    pub trade_id: Option<String>,
+    #[serde(default)]
+    pub ongoing_trade_id: Option<String>,
 }
 
 fn parse_tags_json(raw: &str) -> Vec<String> {
@@ -64,6 +70,8 @@ fn row_to_note(row: sqlx::sqlite::SqliteRow) -> Result<NoteRecord, String> {
         pair: row.try_get("pair").map_err(|e| e.to_string())?,
         session: row.try_get("session").map_err(|e| e.to_string())?,
         is_pinned: pinned_int != 0,
+        trade_id: row.try_get("trade_id").ok().flatten(),
+        ongoing_trade_id: row.try_get("ongoing_trade_id").ok().flatten(),
         created_at: row.try_get("created_at").map_err(|e| e.to_string())?,
         updated_at: row.try_get("updated_at").map_err(|e| e.to_string())?,
     })
@@ -105,7 +113,8 @@ pub async fn list_notes(
         sqlx::query(
             r#"
             SELECT n.id, n.title, n.body_json, n.body_text, n.canvas_json,
-                   n.tags, n.pair, n.session, n.is_pinned, n.created_at, n.updated_at
+                   n.tags, n.pair, n.session, n.is_pinned, n.trade_id, n.ongoing_trade_id,
+                   n.created_at, n.updated_at
             FROM notes n
             INNER JOIN notes_fts f ON f.rowid = n.rowid
             WHERE notes_fts MATCH ?1
@@ -125,7 +134,8 @@ pub async fn list_notes(
         sqlx::query(
             r#"
             SELECT id, title, body_json, body_text, canvas_json,
-                   tags, pair, session, is_pinned, created_at, updated_at
+                   tags, pair, session, is_pinned, trade_id, ongoing_trade_id,
+                   created_at, updated_at
             FROM notes
             WHERE (?1 IS NULL OR UPPER(COALESCE(pair, '')) = ?1)
               AND (?2 IS NULL OR COALESCE(session, '') = ?2)
@@ -161,24 +171,35 @@ pub async fn upsert_note(
         .session
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
+    let clean_trade_id = input
+        .trade_id
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let clean_ongoing_id = input
+        .ongoing_trade_id
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
 
     sqlx::query(
         r#"
         INSERT INTO notes (
             id, title, body_json, body_text, canvas_json,
-            tags, pair, session, is_pinned, created_at, updated_at
+            tags, pair, session, is_pinned, trade_id, ongoing_trade_id,
+            created_at, updated_at
         )
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, datetime('now'), datetime('now'))
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, datetime('now'), datetime('now'))
         ON CONFLICT(id) DO UPDATE SET
-            title       = excluded.title,
-            body_json   = excluded.body_json,
-            body_text   = excluded.body_text,
-            canvas_json = excluded.canvas_json,
-            tags        = excluded.tags,
-            pair        = excluded.pair,
-            session     = excluded.session,
-            is_pinned   = excluded.is_pinned,
-            updated_at  = datetime('now')
+            title            = excluded.title,
+            body_json        = excluded.body_json,
+            body_text        = excluded.body_text,
+            canvas_json      = excluded.canvas_json,
+            tags             = excluded.tags,
+            pair             = excluded.pair,
+            session          = excluded.session,
+            is_pinned        = excluded.is_pinned,
+            trade_id         = excluded.trade_id,
+            ongoing_trade_id = excluded.ongoing_trade_id,
+            updated_at       = datetime('now')
         "#,
     )
     .bind(&id)
@@ -190,12 +211,14 @@ pub async fn upsert_note(
     .bind(norm_pair)
     .bind(clean_session)
     .bind(if input.is_pinned { 1 } else { 0 })
+    .bind(clean_trade_id)
+    .bind(clean_ongoing_id)
     .execute(&state.pool)
     .await
     .map_err(|e| e.to_string())?;
 
     let row = sqlx::query(
-        "SELECT id, title, body_json, body_text, canvas_json, tags, pair, session, is_pinned, created_at, updated_at FROM notes WHERE id = ?1",
+        "SELECT id, title, body_json, body_text, canvas_json, tags, pair, session, is_pinned, trade_id, ongoing_trade_id, created_at, updated_at FROM notes WHERE id = ?1",
     )
     .bind(&id)
     .fetch_one(&state.pool)

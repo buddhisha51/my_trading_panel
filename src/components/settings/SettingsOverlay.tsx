@@ -49,7 +49,12 @@ import { useMarketStore } from '../../stores/marketStore';
 import { useNotesStore } from '../../stores/notesStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useStrategiesStore } from '../../stores/strategiesStore';
-import type { BackupRestoreMode } from '../../types/backup';
+import type {
+  AutoBackupEntry,
+  BackupRestoreMode,
+  ReleaseCheckResult,
+} from '../../types/backup';
+import { playAlertChime } from '../../utils/soundCue';
 import {
   cloneDefaultCanvasToolSettings,
   type FibLevelConfig,
@@ -457,6 +462,10 @@ export function SettingsOverlay({ initialTab = 'dock' }: SettingsOverlayProps) {
     const [restoreMode, setRestoreMode] = useState<BackupRestoreMode>('merge');
     const [backupStatusMsg, setBackupStatusMsg] = useState<string | null>(null);
     const [backupErrorMsg, setBackupErrorMsg] = useState<string | null>(null);
+    const [autoBackups, setAutoBackups] = useState<AutoBackupEntry[]>([]);
+    const [releaseInfo, setReleaseInfo] = useState<ReleaseCheckResult | null>(null);
+    const [checkingUpdates, setCheckingUpdates] = useState(false);
+    const [updateErrorMsg, setUpdateErrorMsg] = useState<string | null>(null);
     const backupInputRef = useRef<HTMLInputElement | null>(null);
     const contentScrollRef = usePreservedScroll<HTMLDivElement>(`settings-overlay:${activeTab}`);
     const [now, setNow] = useState(() => DateTime.utc());
@@ -464,6 +473,11 @@ export function SettingsOverlay({ initialTab = 'dock' }: SettingsOverlayProps) {
     useEffect(() => {
       setActiveTab(initialTab);
     }, [initialTab]);
+
+    useEffect(() => {
+      if (activeTab !== 'keys') return;
+      void tauriBridge.listAutoBackups().then(setAutoBackups).catch(() => {});
+    }, [activeTab]);
 
     const hydrate = useSettingsStore((s) => s.hydrate);
     const hydrateJournal = useJournalStore((s) => s.hydrateJournal);
@@ -1195,12 +1209,22 @@ export function SettingsOverlay({ initialTab = 'dock' }: SettingsOverlayProps) {
                   </div>
                 </section>
 
-                {/* Desktop Notifications */}
+                {/* Desktop Notifications, Pre-Open & Sound Chimes + Discipline Guardrails */}
                 <section className="space-y-2 rounded-lg border border-slate-800 bg-slate-900/60 p-2.5">
-                  <div className="flex items-center gap-1.5 font-semibold text-slate-200">
-                    <Bell className="h-3.5 w-3.5 text-amber-400" />
-                    Alerts &amp; Notifications
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 font-semibold text-slate-200">
+                      <Bell className="h-3.5 w-3.5 text-amber-400" />
+                      Alerts &amp; Notifications, Chimes &amp; Guardrails
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void playAlertChime('preopen')}
+                      className="rounded border border-slate-700 bg-slate-950 px-2 py-0.5 text-[10px] text-amber-300 hover:bg-slate-800"
+                    >
+                      Test Chime
+                    </button>
                   </div>
+
                   <label className="flex cursor-pointer items-center justify-between gap-2">
                     <span className="text-slate-300">
                       Desktop Toast Alerts (Killzone &amp; Session start/end, &le;15m Red Folder news, 15m Missing SL/TP reminder)
@@ -1214,6 +1238,72 @@ export function SettingsOverlay({ initialTab = 'dock' }: SettingsOverlayProps) {
                       className="h-4 w-4 accent-blue-500"
                     />
                   </label>
+
+                  <label className="flex cursor-pointer items-center justify-between gap-2">
+                    <span className="text-slate-300">
+                      Play Desktop Sound Chimes (Web Audio, works under Focus Assist)
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={settings.soundAlertsEnabled}
+                      onChange={(e) =>
+                        void updateSettings({ soundAlertsEnabled: e.target.checked })
+                      }
+                      className="h-4 w-4 accent-blue-500"
+                    />
+                  </label>
+
+                  <div className="flex items-center justify-between gap-2 text-[10px]">
+                    <span className="text-slate-300">Killzone / Session Pre-Open Lead Time</span>
+                    <select
+                      aria-label="Pre-open alert lead time"
+                      value={settings.preOpenAlertMinutes}
+                      onChange={(e) =>
+                        void updateSettings({ preOpenAlertMinutes: Number(e.target.value) })
+                      }
+                      className="rounded border border-slate-700 bg-slate-950 px-2 py-0.5 font-mono text-slate-100"
+                    >
+                      <option value={0}>Off (At Open Only)</option>
+                      <option value={5}>5 min before</option>
+                      <option value={10}>10 min before</option>
+                      <option value={15}>15 min before</option>
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-1.5 border-t border-slate-800/80 pt-2 text-[10px]">
+                    <label className="space-y-0.5">
+                      <span className="text-slate-400">Max Trades / Day (Guardrail)</span>
+                      <input
+                        type="number"
+                        min={1}
+                        value={settings.maxTradesPerDay ?? ''}
+                        onChange={(e) => {
+                          const v = e.target.value.trim();
+                          void updateSettings({
+                            maxTradesPerDay: v ? Math.max(1, Math.round(Number(v))) : null,
+                          });
+                        }}
+                        placeholder="Off"
+                        className="w-full rounded border border-slate-800 bg-slate-950 px-1.5 py-1 font-mono text-slate-100"
+                      />
+                    </label>
+                    <label className="space-y-0.5">
+                      <span className="text-slate-400">Max Consecutive Losses</span>
+                      <input
+                        type="number"
+                        min={1}
+                        value={settings.maxConsecutiveLosses ?? ''}
+                        onChange={(e) => {
+                          const v = e.target.value.trim();
+                          void updateSettings({
+                            maxConsecutiveLosses: v ? Math.max(1, Math.round(Number(v))) : null,
+                          });
+                        }}
+                        placeholder="Off"
+                        className="w-full rounded border border-slate-800 bg-slate-950 px-1.5 py-1 font-mono text-slate-100"
+                      />
+                    </label>
+                  </div>
                 </section>
 
                 {/* Full Backup Export / Import (.zip) */}
@@ -1351,6 +1441,156 @@ export function SettingsOverlay({ initialTab = 'dock' }: SettingsOverlayProps) {
                   {backupErrorMsg && (
                     <p className="rounded bg-rose-500/10 px-2 py-1 text-[10px] text-rose-300">
                       {backupErrorMsg}
+                    </p>
+                  )}
+
+                  {/* Auto-Backup Controls */}
+                  <div className="space-y-1.5 border-t border-slate-800/80 pt-2 text-[10px]">
+                    <label className="flex cursor-pointer items-center justify-between gap-2">
+                      <span className="text-slate-300">Auto-Backup on Quit (dirty-checked)</span>
+                      <input
+                        type="checkbox"
+                        checked={settings.autoBackupOnQuit}
+                        onChange={(e) =>
+                          void updateSettings({ autoBackupOnQuit: e.target.checked })
+                        }
+                        className="h-3.5 w-3.5 accent-emerald-500"
+                      />
+                    </label>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-slate-400">Keep Latest Snapshots</span>
+                      <div className="flex items-center gap-1.5">
+                        <select
+                          aria-label="Auto backup retention count"
+                          value={settings.autoBackupRetention}
+                          onChange={(e) =>
+                            void updateSettings({ autoBackupRetention: Number(e.target.value) })
+                          }
+                          className="rounded border border-slate-700 bg-slate-950 px-1.5 py-0.5 font-mono text-slate-200"
+                        >
+                          <option value={3}>3</option>
+                          <option value={7}>7</option>
+                          <option value={14}>14</option>
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBackupErrorMsg(null);
+                            void tauriBridge
+                              .triggerAutoBackup(true, settings.autoBackupRetention)
+                              .then((res) => {
+                                if (res.entry) {
+                                  setBackupStatusMsg(`Auto-backup saved: ${res.entry.filename}`);
+                                }
+                                return tauriBridge.listAutoBackups().then(setAutoBackups);
+                              })
+                              .catch((err) =>
+                                setBackupErrorMsg(err instanceof Error ? err.message : String(err)),
+                              );
+                          }}
+                          className="rounded border border-slate-700 bg-slate-950 px-2 py-0.5 text-slate-200 hover:bg-slate-800"
+                        >
+                          Snapshot Now
+                        </button>
+                      </div>
+                    </div>
+                    {autoBackups.length > 0 && (
+                      <div className="text-[9px] text-slate-500">
+                        Latest auto-backup: {autoBackups[0].filename}
+                      </div>
+                    )}
+                  </div>
+                </section>
+
+                {/* App Updates (GitHub Releases Checker) */}
+                <section className="space-y-2 rounded-lg border border-slate-800 bg-slate-900/60 p-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-slate-200">
+                      App Updates (v{__APP_VERSION__})
+                    </span>
+                    <button
+                      type="button"
+                      disabled={checkingUpdates}
+                      onClick={() => {
+                        setCheckingUpdates(true);
+                        setUpdateErrorMsg(null);
+                        void tauriBridge
+                          .checkGithubRelease(true)
+                          .then((res) => setReleaseInfo(res))
+                          .catch((err) =>
+                            setUpdateErrorMsg(err instanceof Error ? err.message : String(err)),
+                          )
+                          .finally(() => setCheckingUpdates(false));
+                      }}
+                      className="rounded border border-slate-700 bg-slate-950 px-2 py-0.5 text-[10px] text-blue-300 hover:bg-slate-800 disabled:opacity-50"
+                    >
+                      {checkingUpdates ? 'Checking...' : 'Check Now'}
+                    </button>
+                  </div>
+
+                  <label className="flex cursor-pointer items-center justify-between gap-2 text-[10px]">
+                    <span className="text-slate-300">Auto-check GitHub Releases (12h cache)</span>
+                    <input
+                      type="checkbox"
+                      checked={settings.autoCheckUpdates}
+                      onChange={(e) =>
+                        void updateSettings({ autoCheckUpdates: e.target.checked })
+                      }
+                      className="h-3.5 w-3.5 accent-blue-500"
+                    />
+                  </label>
+
+                  {releaseInfo && (
+                    <div className="space-y-1.5 rounded border border-slate-800 bg-slate-950/75 p-2 text-[10px]">
+                      <div className="flex items-center justify-between">
+                        <span
+                          className={
+                            releaseInfo.updateAvailable
+                              ? 'font-semibold text-emerald-300'
+                              : 'text-slate-300'
+                          }
+                        >
+                          {releaseInfo.updateAvailable
+                            ? `Update available: v${releaseInfo.latestVersion}`
+                            : `Up to date (v${releaseInfo.currentVersion})`}
+                        </span>
+                        <span className="text-[9px] text-slate-500">
+                          {releaseInfo.fromCache ? 'cached' : 'live'}
+                        </span>
+                      </div>
+                      {releaseInfo.releaseNotes && (
+                        <p className="line-clamp-3 whitespace-pre-wrap text-[9px] text-slate-400">
+                          {releaseInfo.releaseNotes}
+                        </p>
+                      )}
+                      <div className="flex flex-wrap gap-1.5 pt-0.5">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void tauriBridge.openExternalUrl(
+                              releaseInfo.installerUrl ?? releaseInfo.releaseUrl,
+                            )
+                          }
+                          className="rounded bg-blue-600 px-2 py-0.5 text-[10px] font-medium text-white hover:bg-blue-500"
+                        >
+                          {releaseInfo.installerUrl ? 'Download Installer' : 'Open Release Page'}
+                        </button>
+                        {releaseInfo.checksumsUrl && (
+                          <button
+                            type="button"
+                            onClick={() => void tauriBridge.openExternalUrl(releaseInfo.checksumsUrl!)}
+                            className="rounded border border-slate-700 bg-slate-900 px-2 py-0.5 text-[10px] text-slate-300 hover:bg-slate-800"
+                          >
+                            SHA256SUMS.txt
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {updateErrorMsg && (
+                    <p className="rounded bg-rose-500/10 px-2 py-1 text-[10px] text-rose-300">
+                      {updateErrorMsg}
                     </p>
                   )}
                 </section>

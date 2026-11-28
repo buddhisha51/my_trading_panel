@@ -241,13 +241,108 @@ CREATE TABLE IF NOT EXISTS widget_layout (
 );
 "#;
 
+async fn table_has_column(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    table: &str,
+    column: &str,
+) -> Result<bool, sqlx::Error> {
+    let query = format!("SELECT cid, name FROM pragma_table_info('{table}')");
+    let cols: Vec<(i64, String)> = sqlx::query_as(&query).fetch_all(&mut **tx).await?;
+    Ok(cols.iter().any(|(_, name)| name == column))
+}
+
+async fn run_migration_002(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>) -> Result<(), sqlx::Error> {
+    let applied: Option<(i64,)> =
+        sqlx::query_as("SELECT version FROM schema_migrations WHERE version = 2")
+            .fetch_optional(&mut **tx)
+            .await?;
+    if applied.is_some() {
+        return Ok(());
+    }
+
+    if !table_has_column(tx, "trades", "account_id").await? {
+        sqlx::query("ALTER TABLE trades ADD COLUMN account_id TEXT NOT NULL DEFAULT 'default'")
+            .execute(&mut **tx)
+            .await?;
+    }
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_trades_account_id ON trades(account_id)")
+        .execute(&mut **tx)
+        .await?;
+
+    if !table_has_column(tx, "ongoing_trades", "account_id").await? {
+        sqlx::query(
+            "ALTER TABLE ongoing_trades ADD COLUMN account_id TEXT NOT NULL DEFAULT 'default'",
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_ongoing_account_id ON ongoing_trades(account_id)")
+        .execute(&mut **tx)
+        .await?;
+
+    if !table_has_column(tx, "equity_snapshots", "account_id").await? {
+        sqlx::raw_sql(
+            r#"
+            CREATE TABLE equity_snapshots_v2 (
+                id              TEXT PRIMARY KEY,
+                account_id      TEXT NOT NULL DEFAULT 'default',
+                date            TEXT NOT NULL,
+                balance         REAL NOT NULL,
+                daily_pnl       REAL NOT NULL DEFAULT 0,
+                daily_drawdown  REAL,
+                max_drawdown    REAL,
+                win_count       INTEGER NOT NULL DEFAULT 0,
+                loss_count      INTEGER NOT NULL DEFAULT 0,
+                notes           TEXT,
+                created_at      TEXT NOT NULL,
+                UNIQUE(account_id, date)
+            );
+            INSERT INTO equity_snapshots_v2 (
+                id, account_id, date, balance, daily_pnl, daily_drawdown,
+                max_drawdown, win_count, loss_count, notes, created_at
+            )
+            SELECT
+                id, 'default', date, balance, daily_pnl, daily_drawdown,
+                max_drawdown, win_count, loss_count, notes, created_at
+            FROM equity_snapshots;
+            DROP TABLE equity_snapshots;
+            ALTER TABLE equity_snapshots_v2 RENAME TO equity_snapshots;
+            "#,
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    if !table_has_column(tx, "notes", "trade_id").await? {
+        sqlx::query("ALTER TABLE notes ADD COLUMN trade_id TEXT")
+            .execute(&mut **tx)
+            .await?;
+    }
+    if !table_has_column(tx, "notes", "ongoing_trade_id").await? {
+        sqlx::query("ALTER TABLE notes ADD COLUMN ongoing_trade_id TEXT")
+            .execute(&mut **tx)
+            .await?;
+    }
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_notes_trade_id ON notes(trade_id)")
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_notes_ongoing_trade_id ON notes(ongoing_trade_id)",
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query("INSERT OR IGNORE INTO schema_migrations (version) VALUES (2)")
+        .execute(&mut **tx)
+        .await?;
+
+    Ok(())
+}
+
 pub async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     let mut tx = pool.begin().await?;
     sqlx::raw_sql(MIGRATION_001_SQL).execute(&mut *tx).await?;
-    let cols: Vec<(i64, String)> = sqlx::query_as("SELECT cid, name FROM pragma_table_info('widget_layout')")
-        .fetch_all(&mut *tx)
-        .await?;
-    if !cols.iter().any(|(_, name)| name == "custom_width") {
+    if !table_has_column(&mut tx, "widget_layout", "custom_width").await? {
         sqlx::query("ALTER TABLE widget_layout ADD COLUMN custom_width INTEGER")
             .execute(&mut *tx)
             .await?;
@@ -255,6 +350,7 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     sqlx::query("INSERT OR IGNORE INTO schema_migrations (version) VALUES (1)")
         .execute(&mut *tx)
         .await?;
+    run_migration_002(&mut tx).await?;
     tx.commit().await?;
     Ok(())
 }

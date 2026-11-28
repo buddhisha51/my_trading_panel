@@ -104,6 +104,8 @@ export const useNotesStore = create<NotesState>()(
         pair: note.pair,
         session: note.session,
         isPinned: !note.isPinned,
+        tradeId: note.tradeId ?? null,
+        ongoingTradeId: note.ongoingTradeId ?? null,
       });
     },
 

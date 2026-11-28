@@ -5,7 +5,7 @@ import { useDockStore } from '../../stores/dockStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { getSlideTransform, isHorizontalEdge } from '../../utils/dockMath';
 import { formatZoneClock, getStatusIndicatorLight, NY_TIMEZONE } from '../../utils/timezone';
-import { SettingsOverlay, type SettingsTab } from '../settings/SettingsOverlay';
+import { SettingsOverlay } from '../settings/SettingsOverlay';
 import { HotkeySheetModal } from './HotkeySheetModal';
 import { ResizeHandle } from './ResizeHandle';
 import { TitleBar } from './TitleBar';
@@ -36,7 +36,8 @@ export function PanelContainer({ onMouseEnter, onMouseLeave }: PanelContainerPro
   const finishCollapseBounds = useDockStore((s) => s.finishCollapseBounds);
   const setSettingsOpen = useDockStore((s) => s.setSettingsOpen);
   const setHotkeysOpen = useDockStore((s) => s.setHotkeysOpen);
-  const [settingsTab, setSettingsTab] = useState<SettingsTab>('dock');
+  const settingsTab = useDockStore((s) => s.settingsTab);
+  const setSettingsTab = useDockStore((s) => s.setSettingsTab);
 
   const [now, setNow] = useState(() => DateTime.utc());
   useEffect(() => {

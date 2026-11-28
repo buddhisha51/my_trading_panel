@@ -45,20 +45,20 @@ All widgets can be reordered (drag-and-drop or up/down arrows), toggled on/off, 
 
 1. **ICT Killzones & Macros:** Live `America/New_York` countdowns for Asian, London Open, NY AM (`07:00–10:00`), NY Indices AM (`09:30–11:00`), London Close, Silver Bullet windows, NY Midnight Open (`00:00 NY`), and customizable ICT Macro intervals.
 2. **Forex Session Clocks:** Local market hours for Sydney (`08:00–17:00`), Tokyo (`09:00–18:00`), London (`08:00–17:00`), and New York (`08:00–17:00`) with active session overlap tracking.
-3. **Daily Bias Quick-Strip:** Track `MN / W1 / D1 / H4 / H1` directional bias (with Monthly & Weekly period scoping across dates), PDH / PDL / Asian liquidity notes, and custom watchlist pairs.
-4. **Risk & Lot Size Calculator:** Instant lot sizing, tick/pip risk math, and R-multiple calculations across Forex majors, JPY crosses, XAUUSD, and US indices with editable instrument specifications.
-5. **Quick Notes & Canvas:** TipTap rich text notes + Windows native snipping (`ms-screenclip:` & `Ctrl + V` paste) + lazy-loaded interactive Konva **ICT Drawing Canvas** with SVG card thumbnails, plus a **separate floating reader window** (with **Pin open**, cross-screen header dragging, and off-click close) alongside a dedicated edit button.
-6. **Strategies & Playbooks:** Build custom trade models with rich descriptions, ICT canvas diagrams, interactive confluence checklists that live-grade setups (`A+`, `A`, `B`, `C`), and a **separate floating playbook viewer** (draggable across screens & pinnable).
-7. **Ongoing Trades Monitor:** Track active positions live with **Entry Time**, real-time **Elapsed Running Duration**, smart missing **SL/TP** warnings (plus inline quick-fix & 15m market-check notification reminders), and one-click closure directly into the Trade Journal.
-8. **Trade Journal & Equity:** Manual trade log, win rate, profit factor, R-multiple stats, SVG equity curve, and Prop Firm drawdown alerts (Daily DD %, Max DD %, Static vs. Trailing High-Water Mark).
-9. **Economic Calendar:** Rust-fetched, SQLite-cached economic events (`nfs.faireconomy.media`) with currency/impact filters and `<= 15m` Red-Folder volatility alerts.
+3. **Daily Bias Quick-Strip:** Switch between **Pair Detail** (`MN / W1 / D1 / H4 / H1`, PDH / PDL / Asian levels, Monthly & Weekly period scoping) and **Multi-Pair Matrix** view for fast 1-click top-down bias cycling across your watchlist.
+4. **Risk & Lot Size Calculator:** Auto-syncing Equity tracking (with temporary manual override + **Sync Bal** chip), smart instrument presets (`Forex`, `JPY`, `Gold`, `Index`, `Crypto`), live broker contract math readout (`$/move per 1.00 lot`), mismatch scale warnings, daily max trades / consecutive loss guardrails, and 1-click **Track Trade →** dispatch into Ongoing Trades.
+5. **Quick Notes & Canvas:** TipTap rich text notes + Windows native snipping (`ms-screenclip:` & `Ctrl + V` paste) + lazy-loaded interactive Konva **ICT Drawing Canvas** with SVG card thumbnails, contextual **`Keys`** shortcut hover popovers, optional trade linking (`+Note`), plus a **separate floating reader window** (**Prev / Next** navigation, **Pin open**, cross-screen header dragging, off-click close) alongside a dedicated edit button.
+6. **Strategies & Playbooks:** Build custom trade models with rich descriptions, ICT canvas diagrams, interactive confluence checklists that live-grade setups (`A+`, `A`, `B`, `C`), and a **separate floating playbook viewer** (**Prev / Next** navigation, draggable across screens & pinnable).
+7. **Ongoing Trades Monitor:** Track active positions live with **Entry Time**, real-time **Elapsed Running Duration**, smart missing **SL/TP** warnings (plus inline quick-fix & 15m market-check reminders), `<= 15m` Red-Folder **`NEWS`** badges on impacted pairs, `+Note` trade-note linking (automatically carried over to the closed trade), and one-click closure directly into the Trade Journal.
+8. **Trade Journal & Equity:** **Multi-Account Switcher** (Default, Prop Challenges, Funded accounts), **Log | Stats** breakdown by Session / Playbook / Setup Grade, click-to-inspect/edit closed trades with stored checklist snapshots, **MT5 / cTrader / Prop CSV Import & Export**, SVG equity curve, and Prop Firm drawdown alerts (Daily DD %, Max DD %, Static vs. Trailing High-Water Mark).
+9. **Economic Calendar:** Rust-fetched, SQLite-cached economic events (`nfs.faireconomy.media`) with 1-click **Watchlist** currency preset, customizable currency/pair chips, impact filters, and `<= 15m` Red-Folder volatility alerts.
 10. **Forex & Crypto News:** SQLite-cached feeds from CryptoCompare, ForexLive RSS, FXStreet RSS, Cointelegraph RSS, custom user RSS URLs, and optional Finnhub integration (API key stored securely in Windows Credential Manager).
 
 ---
 
 ## ICT Drawing Canvas & Markup Guide
 
-Available inside both **Quick Notes & Canvas** and **Strategies & Playbooks**, backed by full undo/redo history (`Ctrl + Z` / `Ctrl + Shift + Z`), shape color swatches, and miniature previews:
+Available inside both **Quick Notes & Canvas** and **Strategies & Playbooks**, backed by full undo/redo history (`Ctrl + Z` / `Ctrl + Shift + Z`), shape color swatches, per-zone **Opacity** sliders, `Ctrl + Scroll` zoom + `Space + Drag` pan, **`Lock BG`** screenshot lock, 1-click **`Stamp`** ICT setup templates (`ICT 2022 Model`, `Breaker + BPR`), single-key tool shortcuts, a contextual **`Keys`** hover popover, and miniature previews:
 
 | Tool | Behavior |
 | :--- | :--- |
@@ -91,7 +91,7 @@ Open Settings via the gear icon or **`Ctrl + ,`**:
 - **Theme:** Accent color presets or custom color picker, panel surface opacity, edge strip opacity/color, and strip status indicator mode (`Killzone`, `Session`, or `Hidden`).
 - **Time:** Display timezone, `24h` / `12h` clock format, dual NY reference clock toggle, and automatic IANA DST handling.
 - **Zones:** Toggle Silver Bullets, ICT Macros, and NY Midnight Open line; edit start/end times and colors for every Killzone and Macro; or reset ICT defaults.
-- **Keys:** Enable/pause and rebind global shortcuts with live conflict detection, open the Hotkey Cheat Sheet, toggle Windows toast notifications (**Killzone & Session start/end**, `<= 15m` Red-Folder news, and **15m Missing SL/TP trade reminders**), and run **Full Backup & Restore (`.zip`)**.
+- **Keys:** Enable/pause and rebind global shortcuts with live conflict detection (separated cleanly from per-widget contextual hover `?` popovers), open the Hotkey Cheat Sheet, toggle Windows toast notifications & **synthesized Web Audio chimes** (**Pre-Open Lead Time `0/5/10/15m`**, **Killzone & Session start/end**, `<= 15m` Red-Folder news, and **15m Missing SL/TP trade reminders**, plus **Test Chime**), configure discipline guardrails (**Max Trades/Day**, **Max Consecutive Losses**), manage **Auto-Backup on Quit** (`3/7/14` rolling snapshots) and **Full Backup & Restore (`.zip`)**, and check **GitHub Releases** for updates.
 - **Widgets:** Reorder or hide widgets, set per-widget custom height (Left/Right docks) or width (Top/Bottom docks), customize **OTE & Fib** levels/colors/opacity, save an optional **Finnhub API key**, add/remove custom **RSS feeds**, and inspect local SQLite status.
 
 ---
@@ -118,11 +118,17 @@ Press **`Ctrl + /`** (or click the keyboard icon in the titlebar/footer) anytime
 | `Esc` | Panel Navigation | Close Settings, Cheat Sheet, or exit Full-Screen |
 | `Ctrl + Z` | ICT Drawing Canvas | Undo drawing step |
 | `Ctrl + Shift + Z` | ICT Drawing Canvas | Redo drawing step |
+| `Ctrl + D` | ICT Drawing Canvas | Duplicate selected shape |
+| `Ctrl + Scroll` / `Space + Drag` | ICT Drawing Canvas | Zoom around cursor & pan canvas |
+| `V/P/C/R/F/I/B/O/L/H/M/T` | ICT Drawing Canvas | Single-key tool switches |
 | `Ctrl + V` | ICT Drawing Canvas | Paste clipboard screenshot onto canvas |
 | `Delete` / `Backspace` | ICT Drawing Canvas | Remove selected shape or image |
 | `Double-Click Text` | ICT Drawing Canvas | Edit existing text annotation |
+| `←` / `→` / `P` | Floating Detail Viewer | Previous / Next item or Pin open |
 | `Ctrl + V` | Rich Note Editor | Paste clipboard screenshot as Note attachment & markup |
 | `Ctrl + B` / `I` / `U` | Rich Note Editor | Bold / Italic / Underline formatting |
+
+> **Per-Widget Shortcuts (`?` icon):** Each widget header and contextual toolbar (`Canvas`, `Floating Viewer`) shows a subtle `?` / `Keys` hover popover listing only shortcuts relevant to that specific widget or tool, while Global Hotkeys stay in **Settings → Keys**.
 
 ---
 
@@ -142,8 +148,8 @@ Press **`Ctrl + /`** (or click the keyboard icon in the titlebar/footer) anytime
 
 ## Backup, Restore & Moving to a New PC
 
-- **Export Backup:** Open **Settings → Keys → Full Backup & Restore (.zip)** and click **Export Backup**. This creates a portable `.zip` archive (saved under `%APPDATA%\com.icttrading.panel\backups\` and downloaded cleanly) containing:
-  - `manifest.json` (`schemaVersion: 1`)
+- **Export Backup:** Open **Settings → Keys → Full Backup & Restore (.zip)** and click **Export Backup** (or enable **Auto-Backup on Quit** for automatic atomic, change-checked snapshots under `backups\auto\`). Each `.zip` archive contains:
+  - `manifest.json` (`schemaVersion: 2`, backward-compatible with `v1` restores)
   - `database.json` covering all 13 user tables (`settings`, `widget_layout`, `daily_bias`, `notes`, `note_attachments`, `strategies`, `checklist_templates`, `strategy_attachments`, `account_profile`, `trades`, `ongoing_trades`, `equity_snapshots`, `rss_feeds`)
   - All screenshot attachment files from `attachments\`
 - **Restore on Another Machine:** Install the app fresh on your new PC, open **Settings → Keys → Full Backup & Restore (.zip)**, select **`replace`** (for a clean mirror) or **`merge`** (to keep existing items and insert missing ones), and click **Import**.

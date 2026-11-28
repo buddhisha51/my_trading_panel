@@ -5,7 +5,7 @@ import { tauriBridge } from '../../services/tauriBridge';
 import { useDockStore } from '../../stores/dockStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { formatZoneClock, getStatusIndicatorLight, NY_TIMEZONE } from '../../utils/timezone';
-import { SettingsOverlay, type SettingsTab } from '../settings/SettingsOverlay';
+import { SettingsOverlay } from '../settings/SettingsOverlay';
 import { HotkeySheetModal } from './HotkeySheetModal';
 import { WidgetStack } from './WidgetStack';
 
@@ -21,7 +21,8 @@ export function FullScreenDashboard() {
   const setSettingsOpen = useDockStore((s) => s.setSettingsOpen);
   const setHotkeysOpen = useDockStore((s) => s.setHotkeysOpen);
   const toggleFullScreen = useDockStore((s) => s.toggleFullScreen);
-  const [settingsTab, setSettingsTab] = useState<SettingsTab>('dock');
+  const settingsTab = useDockStore((s) => s.settingsTab);
+  const setSettingsTab = useDockStore((s) => s.setSettingsTab);
 
   const [now, setNow] = useState(() => DateTime.utc());
   useEffect(() => {

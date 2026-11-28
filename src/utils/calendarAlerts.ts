@@ -179,3 +179,29 @@ export function expandCalendarTokensToCurrencies(tokens: string[]): Set<string> 
   }
   return out;
 }
+
+/**
+ * Returns true if an economic calendar currency impacts the given trading symbol
+ * (supports FX pairs like EURUSD/GBPJPY, Gold XAUUSD, Crypto BTCUSD, and equity indices).
+ */
+export function pairMatchesCalendarCurrency(pair: string, currency: string): boolean {
+  const cur = currency.trim().toUpperCase();
+  if (!cur) return false;
+  const pairCurrencies = expandCalendarTokensToCurrencies([pair]);
+  if (pairCurrencies.has(cur)) return true;
+  const cleanPair = pair.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return cleanPair.includes(cur);
+}
+
+/**
+ * Finds the soonest Red-Folder (`high`) event within threshold impacting a specific traded pair.
+ */
+export function getImminentNewsForPair(
+  pair: string,
+  events: EconomicEventItem[],
+  nowUtc: DateTime,
+  thresholdMinutes = 15,
+): VolatilityAlert | null {
+  const alerts = getUpcomingHighImpactAlerts(events, nowUtc, thresholdMinutes);
+  return alerts.find((a) => pairMatchesCalendarCurrency(pair, a.event.country)) ?? null;
+}

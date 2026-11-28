@@ -5,6 +5,8 @@ import { tradeIngestionService } from '../services/tradeIngestionService';
 import type {
   AccountProfile,
   CloseOngoingTradePayload,
+  CreateAccountProfilePayload,
+  CsvImportSummary,
   EquitySnapshotRecord,
   OngoingStatus,
   OngoingTradeRecord,
@@ -15,6 +17,7 @@ import type {
 } from '../types/journal';
 import { computeAccountMetrics, type AccountMetrics } from '../utils/drawdownEngine';
 import { getTodayNyDateString } from './dailyBiasStore';
+import { useSettingsStore } from './settingsStore';
 
 const INITIAL_PROFILE: AccountProfile = {
   id: 'default',
@@ -30,6 +33,8 @@ const INITIAL_PROFILE: AccountProfile = {
 };
 
 interface JournalState {
+  activeAccountId: string;
+  profiles: AccountProfile[];
   profile: AccountProfile;
   trades: TradeRecord[];
   ongoingTrades: OngoingTradeRecord[];
@@ -38,9 +43,13 @@ interface JournalState {
   loading: boolean;
   saving: boolean;
 
-  hydrateJournal: () => Promise<void>;
+  hydrateJournal: (accountId?: string) => Promise<void>;
+  switchAccount: (accountId: string) => Promise<void>;
+  createAccountProfile: (payload: CreateAccountProfilePayload) => Promise<AccountProfile>;
   updateProfile: (payload: UpdateAccountProfilePayload) => Promise<AccountProfile>;
+  deleteAccountProfile: (accountId: string, forceCascade?: boolean) => Promise<void>;
   recordTrade: (payload: UpsertTradePayload) => Promise<TradeRecord>;
+  importTradesCsvRows: (rows: UpsertTradePayload[]) => Promise<CsvImportSummary>;
   deleteTrade: (id: string) => Promise<void>;
   openOngoingTrade: (payload: UpsertOngoingTradePayload) => Promise<OngoingTradeRecord>;
   cycleOngoingStatus: (trade: OngoingTradeRecord) => Promise<void>;
@@ -55,6 +64,8 @@ interface JournalState {
 
 export const useJournalStore = create<JournalState>()(
   immer((set, get) => ({
+    activeAccountId: 'default',
+    profiles: [INITIAL_PROFILE],
     profile: INITIAL_PROFILE,
     trades: [],
     ongoingTrades: [],
@@ -63,20 +74,35 @@ export const useJournalStore = create<JournalState>()(
     loading: false,
     saving: false,
 
-    hydrateJournal: async () => {
+    hydrateJournal: async (explicitAccountId) => {
       set((s) => {
         s.loading = true;
       });
       try {
-        const [profile, trades, ongoingTrades, snapshots] = await Promise.all([
-          tradeIngestionService.getAccountProfile(),
-          tradeIngestionService.listTrades(),
-          tradeIngestionService.listOngoingTrades(),
-          tradeIngestionService.listEquitySnapshots(),
+        const preferredId =
+          explicitAccountId ||
+          useSettingsStore.getState().settings.activeAccountId ||
+          get().activeAccountId ||
+          'default';
+
+        const profiles = await tradeIngestionService.listAccountProfiles();
+        const activeProfile =
+          profiles.find((p) => p.id === preferredId) ??
+          profiles.find((p) => p.id === 'default') ??
+          profiles[0] ??
+          INITIAL_PROFILE;
+        const resolvedId = activeProfile.id || 'default';
+
+        const [trades, ongoingTrades, snapshots] = await Promise.all([
+          tradeIngestionService.listTrades(resolvedId),
+          tradeIngestionService.listOngoingTrades(resolvedId),
+          tradeIngestionService.listEquitySnapshots(resolvedId),
         ]);
-        const metrics = computeAccountMetrics(profile, trades);
+        const metrics = computeAccountMetrics(activeProfile, trades);
         set((s) => {
-          s.profile = profile;
+          s.activeAccountId = resolvedId;
+          s.profiles = profiles;
+          s.profile = activeProfile;
           s.trades = trades;
           s.ongoingTrades = ongoingTrades;
           s.snapshots = snapshots;
@@ -90,15 +116,42 @@ export const useJournalStore = create<JournalState>()(
       }
     },
 
+    switchAccount: async (accountId) => {
+      const target = accountId || 'default';
+      await useSettingsStore.getState().updateSettings({ activeAccountId: target });
+      await get().hydrateJournal(target);
+    },
+
+    createAccountProfile: async (payload) => {
+      set((s) => {
+        s.saving = true;
+      });
+      try {
+        const created = await tradeIngestionService.createAccountProfile(payload);
+        await useSettingsStore.getState().updateSettings({ activeAccountId: created.id });
+        await get().hydrateJournal(created.id);
+        return created;
+      } finally {
+        set((s) => {
+          s.saving = false;
+        });
+      }
+    },
+
     updateProfile: async (payload) => {
       set((s) => {
         s.saving = true;
       });
       try {
-        const updated = await tradeIngestionService.updateAccountProfile(payload);
+        const accId = payload.id || get().activeAccountId || 'default';
+        const updated = await tradeIngestionService.updateAccountProfile({
+          ...payload,
+          id: accId,
+        });
         const metrics = computeAccountMetrics(updated, get().trades);
         set((s) => {
           s.profile = updated;
+          s.profiles = s.profiles.map((p) => (p.id === updated.id ? updated : p));
           s.metrics = metrics;
         });
         return updated;
@@ -109,14 +162,41 @@ export const useJournalStore = create<JournalState>()(
       }
     },
 
+    deleteAccountProfile: async (accountId, forceCascade = false) => {
+      await tradeIngestionService.deleteAccountProfile(accountId, forceCascade);
+      const nextId = get().activeAccountId === accountId ? 'default' : get().activeAccountId;
+      await useSettingsStore.getState().updateSettings({ activeAccountId: nextId });
+      await get().hydrateJournal(nextId);
+    },
+
     recordTrade: async (payload) => {
       set((s) => {
         s.saving = true;
       });
       try {
-        const saved = await tradeIngestionService.recordManualTrade(payload);
-        await get().hydrateJournal();
+        const accId = payload.accountId || get().activeAccountId || 'default';
+        const saved = await tradeIngestionService.recordManualTrade({
+          ...payload,
+          accountId: accId,
+        });
+        await get().hydrateJournal(accId);
         return saved;
+      } finally {
+        set((s) => {
+          s.saving = false;
+        });
+      }
+    },
+
+    importTradesCsvRows: async (rows) => {
+      set((s) => {
+        s.saving = true;
+      });
+      try {
+        const accId = get().activeAccountId || 'default';
+        const summary = await tradeIngestionService.importTradesCsvRows(accId, rows);
+        await get().hydrateJournal(accId);
+        return summary;
       } finally {
         set((s) => {
           s.saving = false;
@@ -126,7 +206,7 @@ export const useJournalStore = create<JournalState>()(
 
     deleteTrade: async (id) => {
       await tradeIngestionService.deleteTrade(id);
-      await get().hydrateJournal();
+      await get().hydrateJournal(get().activeAccountId);
     },
 
     openOngoingTrade: async (payload) => {
@@ -134,8 +214,12 @@ export const useJournalStore = create<JournalState>()(
         s.saving = true;
       });
       try {
-        const saved = await tradeIngestionService.openTrade(payload);
-        await get().hydrateJournal();
+        const accId = payload.accountId || get().activeAccountId || 'default';
+        const saved = await tradeIngestionService.openTrade({
+          ...payload,
+          accountId: accId,
+        });
+        await get().hydrateJournal(accId);
         return saved;
       } finally {
         set((s) => {
@@ -148,7 +232,7 @@ export const useJournalStore = create<JournalState>()(
       const order: OngoingStatus[] = ['running', 'moved_to_be', 'partials_taken', 'pending'];
       const next = order[(order.indexOf(trade.status) + 1) % order.length];
       await tradeIngestionService.updateOngoingStatus(trade, next);
-      await get().hydrateJournal();
+      await get().hydrateJournal(get().activeAccountId);
     },
 
     updateOngoingRisk: async (trade, patch) => {
@@ -157,7 +241,7 @@ export const useJournalStore = create<JournalState>()(
       });
       try {
         await tradeIngestionService.updateOngoingRisk(trade, patch);
-        await get().hydrateJournal();
+        await get().hydrateJournal(get().activeAccountId);
       } finally {
         set((s) => {
           s.saving = false;
@@ -167,7 +251,7 @@ export const useJournalStore = create<JournalState>()(
 
     deleteOngoingTrade: async (id) => {
       await tradeIngestionService.deleteOngoingTrade(id);
-      await get().hydrateJournal();
+      await get().hydrateJournal(get().activeAccountId);
     },
 
     closeOngoingToJournal: async (payload) => {
@@ -176,7 +260,7 @@ export const useJournalStore = create<JournalState>()(
       });
       try {
         const closed = await tradeIngestionService.closeOngoingToJournal(payload);
-        await get().hydrateJournal();
+        await get().hydrateJournal(get().activeAccountId);
         return closed;
       } finally {
         set((s) => {
@@ -186,8 +270,10 @@ export const useJournalStore = create<JournalState>()(
     },
 
     saveTodaySnapshot: async (notes = null) => {
+      const accId = get().activeAccountId || 'default';
       const m = get().metrics;
       const snap = await tradeIngestionService.recordEquitySnapshot({
+        accountId: accId,
         date: getTodayNyDateString(DateTime.utc()),
         balance: m.currentBalance,
         dailyPnl: m.dailyPnl,
@@ -197,7 +283,7 @@ export const useJournalStore = create<JournalState>()(
         lossCount: m.lossCount,
         notes,
       });
-      await get().hydrateJournal();
+      await get().hydrateJournal(accId);
       return snap;
     },
   })),

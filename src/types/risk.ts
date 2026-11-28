@@ -210,6 +210,96 @@ export interface RiskCalculatorInput {
   conversionRates?: Partial<ConversionRates>;
 }
 
+export type CustomInstrumentPresetId =
+  | 'fx_standard'
+  | 'fx_jpy'
+  | 'metal'
+  | 'index_1pt'
+  | 'crypto_1unit';
+
+export interface CustomInstrumentPreset {
+  id: CustomInstrumentPresetId;
+  label: string;
+  specPatch: Omit<InstrumentSpec, 'symbol' | 'label' | 'instrumentClass'>;
+}
+
+export const CUSTOM_INSTRUMENT_PRESETS: CustomInstrumentPreset[] = [
+  {
+    id: 'crypto_1unit',
+    label: 'Crypto ($1/pt, 1 unit)',
+    specPatch: {
+      tickSize: 1,
+      tickLabel: 'pt ($1)',
+      contractSize: 1,
+      tickValuePerLot: 1,
+      decimals: 2,
+      conversionMode: 'fixed_usd',
+    },
+  },
+  {
+    id: 'index_1pt',
+    label: 'Index ($1/pt)',
+    specPatch: {
+      tickSize: 1,
+      tickLabel: 'pt',
+      contractSize: 1,
+      tickValuePerLot: 1,
+      decimals: 2,
+      conversionMode: 'fixed_usd',
+    },
+  },
+  {
+    id: 'metal',
+    label: 'Metal / Gold ($1 / 0.01)',
+    specPatch: {
+      tickSize: 0.01,
+      tickLabel: 'tick ($0.01)',
+      contractSize: 100,
+      tickValuePerLot: 1,
+      decimals: 2,
+      conversionMode: 'fixed_usd',
+    },
+  },
+  {
+    id: 'fx_standard',
+    label: 'FX Pair ($10/pip)',
+    specPatch: {
+      tickSize: 0.0001,
+      tickLabel: 'pip',
+      contractSize: 100000,
+      tickValuePerLot: 10,
+      decimals: 5,
+      conversionMode: 'fixed_usd',
+    },
+  },
+  {
+    id: 'fx_jpy',
+    label: 'JPY Cross (0.01 pip)',
+    specPatch: {
+      tickSize: 0.01,
+      tickLabel: 'pip',
+      contractSize: 100000,
+      tickValuePerLot: 1000,
+      decimals: 3,
+      conversionMode: 'inverse_usdjpy',
+    },
+  },
+];
+
+export function createInstrumentFromPreset(
+  symbol: string,
+  presetId: CustomInstrumentPresetId = 'crypto_1unit',
+): InstrumentSpec {
+  const preset =
+    CUSTOM_INSTRUMENT_PRESETS.find((p) => p.id === presetId) ?? CUSTOM_INSTRUMENT_PRESETS[0];
+  return {
+    symbol,
+    label: `${symbol} (Custom)`,
+    instrumentClass: 'custom',
+    ...preset.specPatch,
+  };
+}
+
 export interface RiskCalculatorResult {
   valid: boolean;
   error: string | null;
@@ -218,6 +308,8 @@ export interface RiskCalculatorResult {
   riskDollars: number;
   riskPercent: number;
   effectiveTickValuePerLot: number;
+  riskPerStandardLot: number;
+  minRiskForMicroLot: number;
   slPriceDelta: number;
   slTicks: number;
   rawLotSize: number;

@@ -9,12 +9,14 @@ import { useViewerStore } from '../stores/viewerStore';
 import type { HotkeyActionId } from '../types/hotkeys';
 import {
   evaluateMarketTimeAlerts,
+  evaluatePreOpenAlerts,
   getUnprotectedTradeReminders,
   type TimeWindowAlertSnapshot,
 } from '../utils/alertEngine';
 import { getUpcomingHighImpactAlerts } from '../utils/calendarAlerts';
 import { matchesAccelerator } from '../utils/hotkeyUtils';
 import { launchWindowsScreenSnip } from '../utils/imageClipboard';
+import { playAlertChime } from '../utils/soundCue';
 
 export function useWindowLifecycle() {
   const hydrate = useSettingsStore((s) => s.hydrate);
@@ -127,6 +129,7 @@ export function useWindowLifecycle() {
     let unlistenData: (() => void) | undefined;
     let unlistenTray: (() => void) | undefined;
     let unlistenViewerEdit: (() => void) | undefined;
+    let unlistenViewerNav: (() => void) | undefined;
     let mounted = true;
 
     void tauriBridge.onDisplayMetricsChanged(() => {
@@ -168,6 +171,13 @@ export function useWindowLifecycle() {
       else fn();
     });
 
+    void tauriBridge.onViewerRequestNavigate(({ kind, id }) => {
+      useViewerStore.getState().triggerNavigateRequest(kind, id);
+    }).then((fn) => {
+      if (mounted) unlistenViewerNav = fn;
+      else fn();
+    });
+
     return () => {
       mounted = false;
       if (unlistenMetrics) unlistenMetrics();
@@ -175,6 +185,7 @@ export function useWindowLifecycle() {
       if (unlistenData) unlistenData();
       if (unlistenTray) unlistenTray();
       if (unlistenViewerEdit) unlistenViewerEdit();
+      if (unlistenViewerNav) unlistenViewerNav();
     };
   }, [completeDragSnap, expandPanel, hydrated, loadMarketData, reapplyBounds]);
 
@@ -249,18 +260,47 @@ export function useWindowLifecycle() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [setHotkeysOpen, setSettingsOpen, settings.hotkeys, toggleFullScreen]);
 
-  // Background notification watcher for Killzone & Session start/end, <=15m Red-Folder news,
-  // and recurring 15-minute Missing SL/TP ongoing trade reminders.
+  // Background notification & audio watcher for Killzone & Session pre-open/start/end,
+  // <=15m Red-Folder news, and recurring 15-minute Missing SL/TP ongoing trade reminders.
   useEffect(() => {
-    if (!hydrated || !settings.notificationsEnabled) {
+    if (!hydrated || (!settings.notificationsEnabled && !settings.soundAlertsEnabled)) {
       timeAlertSnapshotRef.current = null;
       return;
     }
 
+    const emitAlert = (
+      token: string,
+      title: string,
+      body: string,
+      chimeKind: 'preopen' | 'window' | 'risk' | 'news',
+    ) => {
+      if (notifiedTokensRef.current.has(token)) return;
+      notifiedTokensRef.current.add(token);
+      if (settings.notificationsEnabled) {
+        void tauriBridge.sendDesktopNotification(title, body);
+      }
+      if (settings.soundAlertsEnabled) {
+        void playAlertChime(chimeKind);
+      }
+    };
+
     const checkAlerts = () => {
       const now = DateTime.utc();
 
-      // 1. Killzone & Forex Session Start / End transitions
+      // 1. Pre-Open lead-time alerts (e.g. 5m before Killzone or Session opens)
+      const preOpenAlerts = evaluatePreOpenAlerts({
+        now,
+        killzones: settings.killzones,
+        displayTimezone: settings.displayTimezone,
+        timeFormat: settings.timeFormat,
+        leadMinutes: settings.preOpenAlertMinutes ?? 5,
+        includeSilverBullets: settings.showSilverBullets,
+      });
+      for (const alert of preOpenAlerts) {
+        emitAlert(alert.token, alert.title, alert.body, alert.chimeKind ?? 'preopen');
+      }
+
+      // 2. Killzone & Forex Session Start / End transitions
       const { alerts: timeAlerts, nextSnapshot } = evaluateMarketTimeAlerts({
         now,
         killzones: settings.killzones,
@@ -271,36 +311,28 @@ export function useWindowLifecycle() {
       timeAlertSnapshotRef.current = nextSnapshot;
 
       for (const alert of timeAlerts) {
-        if (!notifiedTokensRef.current.has(alert.token)) {
-          notifiedTokensRef.current.add(alert.token);
-          void tauriBridge.sendDesktopNotification(alert.title, alert.body);
-        }
+        emitAlert(alert.token, alert.title, alert.body, 'window');
       }
 
-      // 2. Recurring 15-min Market Check reminders when SL or TP is missing on open trades
+      // 3. Recurring 15-min Market Check reminders when SL or TP is missing on open trades
       const tradeReminders = getUnprotectedTradeReminders(ongoingTrades, now);
       for (const rem of tradeReminders) {
-        if (!notifiedTokensRef.current.has(rem.token)) {
-          notifiedTokensRef.current.add(rem.token);
-          void tauriBridge.sendDesktopNotification(rem.title, rem.body);
-        }
+        emitAlert(rem.token, rem.title, rem.body, 'risk');
       }
 
-      // 3. Imminent High-Impact Economic Events
+      // 4. Imminent High-Impact Economic Events
       const imminent = getUpcomingHighImpactAlerts(
         events,
         now,
         settings.volatilityThresholdMin || 15,
       );
       for (const al of imminent) {
-        const token = `ev:${al.event.id}`;
-        if (!notifiedTokensRef.current.has(token)) {
-          notifiedTokensRef.current.add(token);
-          void tauriBridge.sendDesktopNotification(
-            `High Volatility Alert (${al.event.country})`,
-            al.message,
-          );
-        }
+        emitAlert(
+          `ev:${al.event.id}`,
+          `High Volatility Alert (${al.event.country})`,
+          al.message,
+          'news',
+        );
       }
     };
 
@@ -314,6 +346,9 @@ export function useWindowLifecycle() {
     settings.displayTimezone,
     settings.killzones,
     settings.notificationsEnabled,
+    settings.preOpenAlertMinutes,
+    settings.showSilverBullets,
+    settings.soundAlertsEnabled,
     settings.timeFormat,
     settings.volatilityThresholdMin,
   ]);

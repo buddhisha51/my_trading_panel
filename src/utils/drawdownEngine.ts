@@ -59,7 +59,20 @@ export interface AccountMetrics {
   winRatePct: number;
   avgRMultiple: number | null;
   profitFactor: number | null;
+  todayTradeCount: number;
+  consecutiveLosses: number;
   equityCurve: EquityPoint[];
+}
+
+export interface GroupedPerformanceStat {
+  key: string;
+  label: string;
+  trades: number;
+  wins: number;
+  losses: number;
+  winRatePct: number;
+  netPnl: number;
+  avgR: number | null;
 }
 
 function tradeTimestampKey(t: TradeRecord): string {
@@ -108,6 +121,7 @@ export function computeAccountMetrics(
   let grossLoss = 0;
   let rSum = 0;
   let rCount = 0;
+  let todayTradeCount = 0;
 
   const equityCurve: EquityPoint[] = [
     { index: 0, label: 'Start', balance: startingBalance, pnl: 0 },
@@ -136,6 +150,7 @@ export function computeAccountMetrics(
 
     if (tradeNyDate(tr) === todayNy) {
       dailyPnl += pnl;
+      todayTradeCount += 1;
     }
 
     if (peak > 0 && running < peak) {
@@ -198,6 +213,12 @@ export function computeAccountMetrics(
   const profitFactor =
     grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? Infinity : null;
 
+  let consecutiveLosses = 0;
+  for (let i = sorted.length - 1; i >= 0; i -= 1) {
+    if (sorted[i].outcome === 'loss') consecutiveLosses += 1;
+    else break;
+  }
+
   return {
     startingBalance,
     currentBalance,
@@ -219,6 +240,50 @@ export function computeAccountMetrics(
     winRatePct,
     avgRMultiple,
     profitFactor,
+    todayTradeCount,
+    consecutiveLosses,
     equityCurve,
   };
+}
+
+export function computeGroupedPerformanceStats(
+  trades: TradeRecord[],
+  resolveKey: (tr: TradeRecord) => string,
+  resolveLabel: (key: string) => string = (k) => k,
+): GroupedPerformanceStat[] {
+  const buckets = new Map<
+    string,
+    { trades: number; wins: number; losses: number; netPnl: number; rSum: number; rCount: number }
+  >();
+
+  for (const tr of trades) {
+    const key = resolveKey(tr);
+    let b = buckets.get(key);
+    if (!b) {
+      b = { trades: 0, wins: 0, losses: 0, netPnl: 0, rSum: 0, rCount: 0 };
+      buckets.set(key, b);
+    }
+    b.trades += 1;
+    if (tr.outcome === 'win' || tr.outcome === 'partial') b.wins += 1;
+    else if (tr.outcome === 'loss') b.losses += 1;
+    b.netPnl += normalizeTradePnl(tr.outcome, tr.pnlDollars) ?? 0;
+    const r = normalizeTradeR(tr.outcome, tr.rMultiple);
+    if (r !== null && Number.isFinite(r)) {
+      b.rSum += r;
+      b.rCount += 1;
+    }
+  }
+
+  return Array.from(buckets.entries())
+    .map(([key, b]) => ({
+      key,
+      label: resolveLabel(key),
+      trades: b.trades,
+      wins: b.wins,
+      losses: b.losses,
+      winRatePct: b.trades > 0 ? (b.wins / b.trades) * 100 : 0,
+      netPnl: b.netPnl,
+      avgR: b.rCount > 0 ? b.rSum / b.rCount : null,
+    }))
+    .sort((a, b) => b.netPnl - a.netPnl || b.trades - a.trades);
 }

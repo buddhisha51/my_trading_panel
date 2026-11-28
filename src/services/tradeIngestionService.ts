@@ -2,6 +2,8 @@ import { tauriBridge } from './tauriBridge';
 import type {
   AccountProfile,
   CloseOngoingTradePayload,
+  CreateAccountProfilePayload,
+  CsvImportSummary,
   EquitySnapshotRecord,
   OngoingStatus,
   OngoingTradeRecord,
@@ -19,12 +21,16 @@ import type {
  */
 export interface ITradeIngestionService {
   readonly sourceName: string;
-  getAccountProfile(): Promise<AccountProfile>;
+  listAccountProfiles(): Promise<AccountProfile[]>;
+  getAccountProfile(accountId?: string): Promise<AccountProfile>;
+  createAccountProfile(payload: CreateAccountProfilePayload): Promise<AccountProfile>;
   updateAccountProfile(payload: UpdateAccountProfilePayload): Promise<AccountProfile>;
-  listTrades(): Promise<TradeRecord[]>;
+  deleteAccountProfile(accountId: string, forceCascade?: boolean): Promise<void>;
+  listTrades(accountId?: string): Promise<TradeRecord[]>;
   recordManualTrade(payload: UpsertTradePayload): Promise<TradeRecord>;
+  importTradesCsvRows(accountId: string, rows: UpsertTradePayload[]): Promise<CsvImportSummary>;
   deleteTrade(id: string): Promise<void>;
-  listOngoingTrades(): Promise<OngoingTradeRecord[]>;
+  listOngoingTrades(accountId?: string): Promise<OngoingTradeRecord[]>;
   openTrade(payload: UpsertOngoingTradePayload): Promise<OngoingTradeRecord>;
   updateOngoingStatus(
     trade: OngoingTradeRecord,
@@ -36,35 +42,54 @@ export interface ITradeIngestionService {
   ): Promise<OngoingTradeRecord>;
   deleteOngoingTrade(id: string): Promise<void>;
   closeOngoingToJournal(payload: CloseOngoingTradePayload): Promise<TradeRecord>;
-  listEquitySnapshots(): Promise<EquitySnapshotRecord[]>;
+  listEquitySnapshots(accountId?: string): Promise<EquitySnapshotRecord[]>;
   recordEquitySnapshot(payload: UpsertEquitySnapshotPayload): Promise<EquitySnapshotRecord>;
 }
 
 export class ManualTradeIngestionService implements ITradeIngestionService {
   readonly sourceName = 'Manual Journal';
 
-  async getAccountProfile(): Promise<AccountProfile> {
-    return tauriBridge.getAccountProfile();
+  async listAccountProfiles(): Promise<AccountProfile[]> {
+    return tauriBridge.listAccountProfiles();
+  }
+
+  async getAccountProfile(accountId = 'default'): Promise<AccountProfile> {
+    return tauriBridge.getAccountProfile(accountId);
+  }
+
+  async createAccountProfile(payload: CreateAccountProfilePayload): Promise<AccountProfile> {
+    return tauriBridge.createAccountProfile(payload);
   }
 
   async updateAccountProfile(payload: UpdateAccountProfilePayload): Promise<AccountProfile> {
     return tauriBridge.updateAccountProfile(payload);
   }
 
-  async listTrades(): Promise<TradeRecord[]> {
-    return tauriBridge.listTrades();
+  async deleteAccountProfile(accountId: string, forceCascade = false): Promise<void> {
+    return tauriBridge.deleteAccountProfile(accountId, forceCascade);
+  }
+
+  async listTrades(accountId = 'default'): Promise<TradeRecord[]> {
+    return tauriBridge.listTrades(accountId);
   }
 
   async recordManualTrade(payload: UpsertTradePayload): Promise<TradeRecord> {
     return tauriBridge.upsertTrade(payload);
   }
 
+  async importTradesCsvRows(
+    accountId: string,
+    rows: UpsertTradePayload[],
+  ): Promise<CsvImportSummary> {
+    return tauriBridge.importTradesCsvRows(accountId, rows);
+  }
+
   async deleteTrade(id: string): Promise<void> {
     return tauriBridge.deleteTrade(id);
   }
 
-  async listOngoingTrades(): Promise<OngoingTradeRecord[]> {
-    return tauriBridge.listOngoingTrades();
+  async listOngoingTrades(accountId = 'default'): Promise<OngoingTradeRecord[]> {
+    return tauriBridge.listOngoingTrades(accountId);
   }
 
   async openTrade(payload: UpsertOngoingTradePayload): Promise<OngoingTradeRecord> {
@@ -77,6 +102,7 @@ export class ManualTradeIngestionService implements ITradeIngestionService {
   ): Promise<OngoingTradeRecord> {
     return tauriBridge.upsertOngoingTrade({
       id: trade.id,
+      accountId: trade.accountId,
       pair: trade.pair,
       direction: trade.direction,
       entryPrice: trade.entryPrice,
@@ -96,6 +122,7 @@ export class ManualTradeIngestionService implements ITradeIngestionService {
   ): Promise<OngoingTradeRecord> {
     return tauriBridge.upsertOngoingTrade({
       id: trade.id,
+      accountId: trade.accountId,
       pair: trade.pair,
       direction: trade.direction,
       entryPrice: trade.entryPrice,
@@ -117,8 +144,8 @@ export class ManualTradeIngestionService implements ITradeIngestionService {
     return tauriBridge.closeOngoingToJournal(payload);
   }
 
-  async listEquitySnapshots(): Promise<EquitySnapshotRecord[]> {
-    return tauriBridge.listEquitySnapshots();
+  async listEquitySnapshots(accountId = 'default'): Promise<EquitySnapshotRecord[]> {
+    return tauriBridge.listEquitySnapshots(accountId);
   }
 
   async recordEquitySnapshot(

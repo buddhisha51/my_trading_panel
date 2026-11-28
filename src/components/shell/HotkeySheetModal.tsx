@@ -49,7 +49,7 @@ export function HotkeySheetModal({ onOpenHotkeySettings }: HotkeySheetModalProps
               if (onOpenHotkeySettings) {
                 onOpenHotkeySettings();
               } else {
-                void setHotkeysOpen(false).then(() => setSettingsOpen(true));
+                void setHotkeysOpen(false).then(() => setSettingsOpen(true, 'keys'));
               }
             }}
             className="inline-flex items-center gap-1 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-[10px] font-medium text-blue-300 hover:bg-slate-800"
@@ -137,7 +137,7 @@ export function HotkeySheetModal({ onOpenHotkeySettings }: HotkeySheetModalProps
         })}
 
         <div className="rounded-md border border-slate-800 bg-slate-900/50 px-2.5 py-2 text-[10px] text-slate-400">
-          Tip: Press <kbd className="rounded border border-slate-700 bg-slate-950 px-1 font-mono text-slate-200">Ctrl + /</kbd> anytime while the panel is open to glance at this cheat sheet, or <kbd className="rounded border border-slate-700 bg-slate-950 px-1 font-mono text-slate-200">Esc</kbd> to close.
+          Tip: Hover the <kbd className="rounded border border-slate-700 bg-slate-950 px-1 font-mono text-slate-200">?</kbd> icon on any widget header or the Drawing Canvas toolbar for contextual shortcuts, or press <kbd className="rounded border border-slate-700 bg-slate-950 px-1 font-mono text-slate-200">Ctrl + /</kbd> to toggle this cheat sheet.
         </div>
       </div>
     </div>

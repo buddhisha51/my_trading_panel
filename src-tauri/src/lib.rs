@@ -163,7 +163,16 @@ pub fn run() {
                         let _ = app_handle.emit("tray-toggle-pin", ());
                     }
                     "quit" => {
-                        app_handle.exit(0);
+                        let handle = app_handle.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let state = handle.state::<DbState>();
+                            commands::backup::maybe_run_auto_backup_on_quit(
+                                &state.pool,
+                                &state.app_data_dir,
+                            )
+                            .await;
+                            handle.exit(0);
+                        });
                     }
                     _ => {}
                 })
@@ -228,6 +237,8 @@ pub fn run() {
             commands::window_mgmt::start_floating_viewer_drag,
             commands::window_mgmt::close_floating_viewer,
             commands::window_mgmt::request_viewer_edit,
+            commands::window_mgmt::request_viewer_navigate,
+            commands::window_mgmt::check_github_release,
             commands::db_ops::get_all_settings,
             commands::db_ops::set_setting,
             commands::db_ops::set_settings_batch,
@@ -248,10 +259,14 @@ pub fn run() {
             commands::attachments::save_attachment,
             commands::attachments::list_attachments,
             commands::attachments::delete_attachment,
+            commands::trades::list_account_profiles,
             commands::trades::get_account_profile,
+            commands::trades::create_account_profile,
             commands::trades::update_account_profile,
+            commands::trades::delete_account_profile,
             commands::trades::list_trades,
             commands::trades::upsert_trade,
+            commands::trades::import_trades_csv_rows,
             commands::trades::delete_trade,
             commands::trades::list_ongoing_trades,
             commands::trades::upsert_ongoing_trade,
@@ -271,6 +286,8 @@ pub fn run() {
             commands::backup::export_backup_zip,
             commands::backup::import_backup_zip,
             commands::backup::open_backups_folder,
+            commands::backup::trigger_auto_backup,
+            commands::backup::list_auto_backups,
             commands::secrets::set_secret,
             commands::secrets::has_secret,
             commands::secrets::delete_secret,
